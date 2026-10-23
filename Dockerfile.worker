@@ -1,0 +1,16 @@
+FROM node:24-alpine AS build
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY tsconfig.json ./
+COPY scripts/build-worker.mjs scripts/build-worker.mjs
+COPY src src
+RUN npm run build:worker && npm prune --omit=dev
+FROM node:24-alpine
+ENV NODE_ENV=production
+WORKDIR /app
+COPY --from=build --chown=node:node /app/node_modules ./node_modules
+COPY --from=build --chown=node:node /app/.worker ./.worker
+COPY --chown=node:node package.json ./
+USER node
+CMD ["node", ".worker/main.mjs"]

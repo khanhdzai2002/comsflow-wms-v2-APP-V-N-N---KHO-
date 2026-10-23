@@ -1,0 +1,22 @@
+# Deploys only the isolated processor; web/API is deployed to Cloudflare Workers.
+# Paid worker service: review current provider pricing before creating it.
+services:
+  - type: worker
+    name: comsflow-wms-file-worker
+    runtime: docker
+    dockerfilePath: ./Dockerfile.worker
+    plan: standard
+    region: singapore
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: STORAGE_BUCKET
+        value: comsflow-private
+      - key: DB_MAX_CONNECTIONS
+        value: "2"

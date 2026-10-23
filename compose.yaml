@@ -1,0 +1,17 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: comsflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-comsflow_local_dev}
+      POSTGRES_DB: comsflow_v2
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - pgdata_v2:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U comsflow"]
+      interval: 3s
+      retries: 20
+volumes:
+  pgdata_v2:

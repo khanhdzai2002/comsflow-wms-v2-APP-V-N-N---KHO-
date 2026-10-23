@@ -1,0 +1,31 @@
+// Shared field metadata; safe to import in client components (no DB or Excel code).
+export const fields = [
+  "tracking_code",
+  "order_id",
+  "channel",
+  "shop",
+  "carrier",
+  "due_date",
+  "status",
+  "sku",
+  "product_name",
+  "color",
+  "size",
+  "quantity",
+  "warehouse",
+] as const;
+export const fieldLabels: Record<string, string> = {
+  tracking_code: "Mã vận đơn",
+  order_id: "Mã đơn hàng",
+  channel: "Sàn",
+  shop: "Gian hàng",
+  carrier: "Đơn vị vận chuyển",
+  due_date: "Ngày cần xuất (YYYY-MM-DD)",
+  status: "Trạng thái",
+  sku: "SKU",
+  product_name: "Tên sản phẩm",
+  color: "Màu",
+  size: "Size",
+  quantity: "Số lượng",
+  warehouse: "Kho",
+};
