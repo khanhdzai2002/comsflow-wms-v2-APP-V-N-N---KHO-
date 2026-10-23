@@ -228,6 +228,40 @@ test("TikTok CSV imports without a processor and safely resumes after a lost com
     name: /Xác nhận lưu 1 yêu cầu hoàn/,
   });
   await expect(save).toBeEnabled();
+  const importMetrics = page.locator(".import-review .source-counts");
+  await expect(
+    importMetrics.getByRole("button", { name: /^Giải thích:/ }),
+  ).toHaveCount(13);
+  await expect(
+    page.getByText("Mã vận đơn hoàn", { exact: true }),
+  ).toBeVisible();
+  const missingHelp = page.getByRole("button", {
+    name: "Giải thích: Chưa có mã vận đơn hoàn",
+    exact: true,
+  });
+  if (test.info().project.name === "mobile") await missingHelp.tap();
+  else await missingHelp.hover();
+  const tooltip = page.getByRole("tooltip");
+  await expect(tooltip).toContainText("Return Logistics Tracking ID");
+  await expect(tooltip).toContainText("chưa thể kết luận thiếu hàng");
+  const tipBounds = await tooltip.boundingBox();
+  expect(tipBounds!.x).toBeGreaterThanOrEqual(0);
+  expect(tipBounds!.x + tipBounds!.width).toBeLessThanOrEqual(
+    page.viewportSize()!.width,
+  );
+  await page.screenshot({
+    path: `test-results/return-import-help-${test.info().project.name}.png`,
+  });
+  await missingHelp.press("Escape");
+  await expect(tooltip).toHaveCount(0);
+  const newHelp = page.getByRole("button", {
+    name: "Giải thích: Yêu cầu mới",
+    exact: true,
+  });
+  await newHelp.focus();
+  await expect(tooltip).toContainText("Chỉ được lưu khi bạn xác nhận");
+  await newHelp.press("Escape");
+  await expect(tooltip).toHaveCount(0);
   await expect(page.getByText("Đã lưu nguồn", { exact: true })).toHaveCount(0);
   await save.click();
   await expect(
@@ -609,6 +643,37 @@ test("return overview opens matching carrier cases and permits processing withou
     page.getByRole("button", { name: /^Đơn hoàn đã về kho/ }),
   ).toBeVisible();
   await expect(page.getByRole("button", { name: /^Đơn bị mất/ })).toBeVisible();
+  const kpis = page.locator(".return-overview-kpis");
+  await expect(kpis.getByRole("button", { name: /^Giải thích:/ })).toHaveCount(
+    6,
+  );
+  await expect(kpis.locator("button button")).toHaveCount(0);
+  const unreceivedHelp = kpis.getByRole("button", {
+    name: "Giải thích: Đơn hoàn chưa về kho",
+    exact: true,
+  });
+  if (testInfo.project.name === "mobile") await unreceivedHelp.tap();
+  else await unreceivedHelp.hover();
+  await expect(page.getByRole("tooltip")).toContainText(
+    "Chưa thể kết luận đơn bị mất",
+  );
+  expect(queries.at(-1)?.get("state")).toBeNull();
+  await unreceivedHelp.press("Escape");
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+  const lostHelp = kpis.getByRole("button", {
+    name: "Giải thích: Đơn bị mất",
+    exact: true,
+  });
+  await lostHelp.focus();
+  await expect(page.getByRole("tooltip")).toContainText("đã xác nhận mất");
+  await page.screenshot({
+    path: `test-results/return-overview-help-${testInfo.project.name}.png`,
+  });
+  await page.locator(".return-overview .section-toolbar .live-label").click();
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+  await expect(
+    page.getByRole("tab", { name: "Dashboard đơn hoàn", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth),
   ).toBeLessThanOrEqual(page.viewportSize()!.width + 1);
@@ -617,7 +682,10 @@ test("return overview opens matching carrier cases and permits processing withou
     fullPage: true,
   });
   await page
-    .getByRole("button", { name: "J&T Express: 3 đơn còn thiếu", exact: true })
+    .getByRole("button", {
+      name: "J&T Express: 3 đơn chưa về kho",
+      exact: true,
+    })
     .click();
   await expect(
     page.getByRole("tab", { name: "Danh sách & xử lý", exact: true }),

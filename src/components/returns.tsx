@@ -1,5 +1,10 @@
 "use client";
 import { ReturnOverview } from "./return-overview";
+import { MetricHelp } from "./metric-help";
+import {
+  returnSourceMetrics,
+  returnUpdateMetrics,
+} from "./return-import-metrics";
 import { ReturnAnalysis, ReturnImportUpdates } from "./return-analysis";
 import { ReturnDetailInfo, QuickCopy } from "./return-detail-info";
 import { ReturnStatus, warehouseState } from "./return-status";
@@ -1015,17 +1020,13 @@ function ReturnImporter({
               className="source-counts"
               aria-label="Số liệu đối chiếu cập nhật"
             >
-              {Object.entries({
-                new: "Yêu cầu mới",
-                existing: "Đã tồn tại",
-                status: "Đổi trạng thái sàn",
-                unchanged: "Không thay đổi",
-                finance: "Đổi tài chính",
-                errors: "Lỗi / mâu thuẫn",
-              }).map(([key, label]) => (
+              {returnUpdateMetrics.map(([key, label, help]) => (
                 <div key={key}>
                   <strong>{preview.updateSummary[key]}</strong>
-                  <span>{label}</span>
+                  <span className="metric-label">
+                    {label}
+                    <MetricHelp label={label}>{help}</MetricHelp>
+                  </span>
                 </div>
               ))}
             </div>
@@ -1051,15 +1052,7 @@ function ReturnImporter({
             </div>
           )}
           <div className="source-counts" aria-label="Số liệu nguồn hoàn">
-            {[
-              ["rows", "Dòng dữ liệu"],
-              ["requests", "Yêu cầu hoàn"],
-              ["orders", "Đơn gốc"],
-              ["tracking", "Mã vận đơn"],
-              ["quantity", "SP yêu cầu"],
-              ["missingTracking", "Chưa có vận đơn"],
-              ["missingSellerSku", "Thiếu Seller SKU"],
-            ].map(([k, l]) => (
+            {returnSourceMetrics.map(([k, l, help]) => (
               <div
                 key={k}
                 className={
@@ -1070,7 +1063,10 @@ function ReturnImporter({
                 }
               >
                 <strong>{preview.summary[k]}</strong>
-                <span>{l}</span>
+                <span className="metric-label">
+                  {l}
+                  <MetricHelp label={l}>{help}</MetricHelp>
+                </span>
               </div>
             ))}
           </div>
@@ -1129,9 +1125,9 @@ function ReturnImporter({
             </details>
           )}
           <div className="notice">
-            Thiếu mã vận đơn/Seller SKU vẫn lưu yêu cầu. Mã đơn và SKU luôn giữ
-            dạng text. Trạng thái sàn, Refund Time và đơn giá hoàn không thay
-            thế xác nhận kho hoặc tiền thực nhận.
+            Chưa có mã vận đơn hoàn hoặc SKU của shop vẫn lưu yêu cầu. Mã đơn và
+            SKU luôn giữ dạng text. Trạng thái sàn, Refund Time và đơn giá hoàn
+            không thay thế xác nhận kho hoặc tiền thực nhận.
           </div>
           <ErrorBox
             message={

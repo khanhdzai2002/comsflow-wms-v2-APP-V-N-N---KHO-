@@ -21,6 +21,7 @@ import {
   CartesianGrid,
 } from "recharts";
 import { post, refresh, toast, Empty, type Row } from "./shared";
+import { MetricHelp } from "./metric-help";
 
 const number = (value: unknown) => Number(value ?? 0).toLocaleString("vi-VN");
 const money = (value: unknown) =>
@@ -42,28 +43,45 @@ export function ReturnOverview({
     ? Math.round((Number(totals.received) / physical) * 100)
     : null;
   const cards = [
-    ["requests", "Tổng đơn hoàn", Package, "Yêu cầu hoàn duy nhất", ""],
+    [
+      "requests",
+      "Tổng đơn hoàn",
+      Package,
+      "Yêu cầu hoàn duy nhất",
+      "",
+      "Số yêu cầu hoàn khác nhau theo bộ lọc hiện tại. Một đơn mua hàng có thể có nhiều yêu cầu hoàn; không nhân theo SKU hoặc số kiện.",
+    ],
     [
       "received",
       "Đơn hoàn đã về kho",
       PackageCheck,
       "Đã tít nhận ít nhất một kiện",
       "received",
+      "Yêu cầu đã được tít nhận ít nhất một kiện tại kho. Vẫn có thể còn kiện chưa về hoặc chưa kiểm đủ hàng.",
     ],
     [
       "unreceived",
-      "Đơn hoàn còn thiếu",
+      "Đơn hoàn chưa về kho",
       Clock3,
-      "Chưa nhận kiện · cần theo dõi",
+      "Chưa tít nhận kiện nào · cần theo dõi",
       "unreceived",
+      "Chưa tít nhận kiện nào; loại yêu cầu đã hủy hoặc đã đánh dấu không cần trả hàng. Chưa thể kết luận đơn bị mất.",
     ],
-    ["lost", "Đơn bị mất", ShieldAlert, "Trạng thái đã xác nhận mất", "lost"],
+    [
+      "lost",
+      "Đơn bị mất",
+      ShieldAlert,
+      "Trạng thái đã xác nhận mất",
+      "lost",
+      "Yêu cầu có trạng thái nội bộ đã xác nhận mất. Không tự suy ra từ quá hạn hoặc chưa có mã vận đơn hoàn.",
+    ],
     [
       "claim_success",
       "Khiếu nại thành công",
       BadgeCheck,
       "Đã thắng / được bồi hoàn",
       "claim_success",
+      "Yêu cầu có hồ sơ khiếu nại thắng/đã trả tiền hoặc trạng thái nội bộ thắng/được bồi hoàn. Mỗi yêu cầu tính một lần; tiền thực nhận xem riêng bên dưới.",
     ],
     [
       "waiting_inspection",
@@ -71,6 +89,7 @@ export function ReturnOverview({
       ClipboardCheck,
       "Đã nhận · chưa kiểm hoặc cần kiểm lại",
       "waiting_inspection",
+      "Đã nhận ít nhất một kiện nhưng chưa kiểm hàng, hoặc nguồn cập nhật khiến kết quả cũ cần được kiểm lại.",
     ],
   ] as const;
   return (
@@ -88,8 +107,8 @@ export function ReturnOverview({
         </button>
       </div>
       <div className="kpi-grid return-overview-kpis">
-        {cards.map(([key, label, Icon, caption, state]) => (
-          <button
+        {cards.map(([key, label, Icon, caption, state, help]) => (
+          <div
             key={key}
             className={
               "kpi-card " +
@@ -101,10 +120,18 @@ export function ReturnOverview({
                     ? "featured"
                     : "")
             }
-            onClick={() => onNavigate(state)}
           >
+            <button
+              type="button"
+              className="metric-card-action"
+              aria-label={`${label}: ${number(totals[key])}. ${caption}`}
+              onClick={() => onNavigate(state)}
+            />
             <div className="kpi-label">
-              {label}
+              <span className="metric-label">
+                {label}
+                <MetricHelp label={label}>{help}</MetricHelp>
+              </span>
               <span className="kpi-icon">
                 <Icon size={20} />
               </span>
@@ -114,28 +141,49 @@ export function ReturnOverview({
               <ArrowUpRight size={18} />
             </div>
             <div className="kpi-caption">{caption}</div>
-          </button>
+          </div>
         ))}
       </div>
       <div className="progress-strip return-progress">
         <div>
           <span className="progress-dot green-bg" />
-          <span>Tiến độ nhận hoàn</span>
+          <span className="metric-label">
+            Tiến độ nhận hoàn
+            <MetricHelp label="Tiến độ nhận hoàn">
+              Tỷ lệ yêu cầu đã nhận ít nhất một kiện trên tổng hai nhóm đã về
+              kho và chưa về kho cần theo dõi.
+            </MetricHelp>
+          </span>
           <strong>{rate === null ? "Chưa đủ dữ liệu" : rate + "%"}</strong>
           <div className="progress-track green-track">
             <i style={{ width: (rate ?? 0) + "%" }} />
           </div>
         </div>
-        <button
-          className="text-button"
-          onClick={() => onNavigate("partial_receipt")}
-        >
-          {number(totals.partial_receipt)} đơn nhận một phần{" "}
-          <ArrowUpRight size={15} />
-        </button>
-        <button className="text-button" onClick={() => onNavigate("excluded")}>
-          {number(totals.excluded)} đơn hủy / không cần trả hàng
-        </button>
+        <span className="return-progress-metric">
+          <button
+            className="text-button"
+            onClick={() => onNavigate("partial_receipt")}
+          >
+            {number(totals.partial_receipt)} đơn nhận một phần{" "}
+            <ArrowUpRight size={15} />
+          </button>
+          <MetricHelp label="Đơn nhận một phần">
+            Đã nhận ít nhất một kiện, vẫn còn kiện có mã chưa nhận. Chỉ phản ánh
+            số kiện; hàng bên trong cần được kiểm riêng.
+          </MetricHelp>
+        </span>
+        <span className="return-progress-metric">
+          <button
+            className="text-button"
+            onClick={() => onNavigate("excluded")}
+          >
+            {number(totals.excluded)} đơn hủy / không cần trả hàng
+          </button>
+          <MetricHelp label="Đơn hủy / không cần trả hàng">
+            Yêu cầu chưa nhận kiện và đã hủy hoặc được đánh dấu không cần trả
+            hàng. Được loại khỏi nhóm chưa về kho cần theo dõi.
+          </MetricHelp>
+        </span>
       </div>
       <div className="return-overview-main">
         <section className="card return-carrier-panel">
@@ -152,10 +200,44 @@ export function ReturnOverview({
               <table>
                 <thead>
                   <tr>
-                    <th>HÃNG / TỶ TRỌNG</th>
-                    <th>TỔNG ĐƠN</th>
-                    <th>ĐÃ VỀ KHO</th>
-                    <th>CÒN THIẾU</th>
+                    <th>
+                      <span className="metric-label">
+                        HÃNG / TỶ TRỌNG
+                        <MetricHelp label="Tỷ trọng hãng vận chuyển">
+                          Số yêu cầu của nhóm hãng chia tổng yêu cầu theo bộ
+                          lọc. Mỗi yêu cầu thuộc một nhóm; nhiều hãng vào nhóm
+                          cần đối chiếu, chưa có mã vào nhóm chưa xác định.
+                        </MetricHelp>
+                      </span>
+                    </th>
+                    <th>
+                      <span className="metric-label">
+                        TỔNG ĐƠN
+                        <MetricHelp label="Tổng đơn theo hãng">
+                          Số yêu cầu hoàn khác nhau thuộc nhóm hãng này. Bấm số
+                          để mở danh sách.
+                        </MetricHelp>
+                      </span>
+                    </th>
+                    <th>
+                      <span className="metric-label">
+                        ĐÃ VỀ KHO
+                        <MetricHelp label="Đã về kho theo hãng">
+                          Yêu cầu thuộc nhóm hãng này đã tít nhận ít nhất một
+                          kiện. Bấm số để mở danh sách.
+                        </MetricHelp>
+                      </span>
+                    </th>
+                    <th>
+                      <span className="metric-label">
+                        CHƯA VỀ KHO
+                        <MetricHelp label="Chưa về kho theo hãng">
+                          Yêu cầu thuộc nhóm hãng này chưa tít nhận kiện nào,
+                          loại yêu cầu hủy hoặc được đánh dấu không cần trả
+                          hàng.
+                        </MetricHelp>
+                      </span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -204,10 +286,10 @@ export function ReturnOverview({
                             {number(carrier.received)}
                           </button>
                         </td>
-                        <td data-label="Còn thiếu">
+                        <td data-label="Chưa về kho">
                           <button
                             className="return-count-link orange-text"
-                            aria-label={`${carrier.name}: ${carrier.unreceived} đơn còn thiếu`}
+                            aria-label={`${carrier.name}: ${carrier.unreceived} đơn chưa về kho`}
                             onClick={() => onNavigate("unreceived", carrier.id)}
                           >
                             {number(carrier.unreceived)}
@@ -236,20 +318,45 @@ export function ReturnOverview({
             </div>
           </div>
           {[
-            ["overdue", "Quá mốc chưa về", "overdue"],
-            ["open_claims", "Đang khiếu nại", "open_claims"],
-            ["missing_tracking", "Chưa có mã vận đơn", "missing_tracking"],
-            ["stale", "Nguồn đổi · cần kiểm lại", "stale"],
-          ].map(([key, label, state]) => (
-            <button
-              key={key}
-              className="return-priority-row"
-              onClick={() => onNavigate(state)}
-            >
-              <span>{label}</span>
+            [
+              "overdue",
+              "Quá mốc chưa về",
+              "overdue",
+              "Chưa nhận kiện và đã quá ngày dự kiến hoặc mốc theo dõi bên dưới. Đây là cảnh báo để liên hệ đối soát, chưa phải kết luận mất đơn.",
+            ],
+            [
+              "open_claims",
+              "Đang khiếu nại",
+              "open_claims",
+              "Yêu cầu có hồ sơ khiếu nại đang mở/đã gửi, hoặc đang ở trạng thái nội bộ khiếu nại. Mỗi yêu cầu tính một lần.",
+            ],
+            [
+              "missing_tracking",
+              "Chưa có mã vận đơn hoàn",
+              "missing_tracking",
+              "Yêu cầu chưa có mã vận đơn hoàn đang được theo dõi trong hệ thống. Khác với đã có mã nhưng chưa nhận kiện tại kho.",
+            ],
+            [
+              "stale",
+              "Nguồn đổi · cần kiểm lại",
+              "stale",
+              "Yêu cầu đã được kiểm hàng nhưng dữ liệu nguồn cập nhật ảnh hưởng đến số lượng hoặc kiện hoàn, nên cần kiểm lại.",
+            ],
+          ].map(([key, label, state, help]) => (
+            <div key={key} className="return-priority-row">
+              <button
+                type="button"
+                className="metric-card-action"
+                aria-label={`${label}: ${number(totals[key])}`}
+                onClick={() => onNavigate(state)}
+              />
+              <span className="metric-label">
+                {label}
+                <MetricHelp label={label}>{help}</MetricHelp>
+              </span>
               <strong>{number(totals[key])}</strong>
               <ArrowUpRight size={16} />
-            </button>
+            </div>
           ))}
         </section>
       </div>
@@ -301,12 +408,27 @@ export function ReturnOverview({
           <h2>Bồi thường & theo dõi</h2>
           <dl>
             {[
-              ["claim_requested", "Tiền yêu cầu bồi thường"],
-              ["claim_approved", "Tiền được duyệt"],
-              ["claim_received", "Tiền đã thực nhận"],
-            ].map(([key, label]) => (
+              [
+                "claim_requested",
+                "Tiền yêu cầu bồi thường",
+                "Tổng số tiền đề nghị trong các hồ sơ khiếu nại thuộc bộ lọc hiện tại. Chưa phải tiền được duyệt hoặc đã nhận.",
+              ],
+              [
+                "claim_approved",
+                "Tiền được duyệt",
+                "Tổng số tiền được duyệt ghi trong các hồ sơ khiếu nại thuộc bộ lọc. Có thể chưa được thanh toán.",
+              ],
+              [
+                "claim_received",
+                "Tiền đã thực nhận",
+                "Tổng tiền thực nhận được ghi trong hồ sơ khiếu nại nội bộ thuộc bộ lọc. Không suy ra từ Refund Time hoặc giá sản phẩm.",
+              ],
+            ].map(([key, label, help]) => (
               <div key={key}>
-                <dt>{label}</dt>
+                <dt className="metric-label">
+                  {label}
+                  <MetricHelp label={label}>{help}</MetricHelp>
+                </dt>
                 <dd>{money(totals[key])}</dd>
               </div>
             ))}
