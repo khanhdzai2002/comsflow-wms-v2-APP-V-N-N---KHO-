@@ -907,6 +907,11 @@ function ReturnImporter({
           clear();
         }}
       />
+      <p className="small-note">
+        CSV mẫu TikTok Shop: nhập trực tiếp, không cần dịch vụ xử lý file, tối
+        đa 1 MB / 2.000 dòng. Giữ nguyên file CSV gốc để bảo toàn mã đơn dài.
+        Excel và CSV sàn khác vẫn cần dịch vụ xử lý riêng.
+      </p>
       <details
         className="import-advanced"
         open={advanced}
@@ -1150,7 +1155,12 @@ function ReturnImporter({
               className="secondary"
               onClick={async () => {
                 try {
-                  const { fileJob } = await import("./job-client");
+                  const { fileJob, downloadCsvErrors } =
+                    await import("./job-client");
+                  if (preview._csvDirect) {
+                    downloadCsvErrors(preview.errors);
+                    return;
+                  }
                   const result = await fileJob("returns/import/errors", form());
                   window.location.assign(
                     "/api/jobs/" + result._jobId + "/download",

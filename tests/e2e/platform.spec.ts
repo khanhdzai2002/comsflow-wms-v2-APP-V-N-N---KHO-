@@ -1,4 +1,6 @@
 import { test, expect } from "@playwright/test";
+import { returnCsv, returnRow } from "../return-fixture";
+import { parseTikTokReturnCsv } from "../../src/lib/return-csv-parse";
 const id = "11111111-1111-4111-8111-111111111111";
 const jobId = "22222222-2222-4222-8222-222222222222";
 test.beforeEach(async ({ page }) => {
@@ -114,6 +116,131 @@ test("return import remains directly identifiable as its own selected tab", asyn
   await expect(
     page.getByRole("tab", { name: "Nhập dữ liệu đơn hoàn", exact: true }),
   ).toHaveAttribute("aria-selected", "true");
+});
+
+test("TikTok CSV imports without a processor and safely resumes after a lost commit response", async ({
+  page,
+}) => {
+  const bytes = returnCsv([returnRow()]);
+  const parsed = parseTikTokReturnCsv(bytes);
+  let uploaded = false,
+    committed = false,
+    commitCalls = 0,
+    polled = 0;
+  const preview = {
+    ...parsed,
+    _csvDirect: true,
+    _jobId: jobId,
+    previewFingerprint: "a".repeat(64),
+    canCommit: true,
+    existingRequests: 0,
+    conflicts: [],
+    changes: [],
+    carrierChecks: [],
+    updateSummary: {
+      new: 1,
+      existing: 0,
+      status: 0,
+      unchanged: 0,
+      finance: 0,
+      errors: 0,
+    },
+  };
+  await page.route("**/api/references", (route) =>
+    route.fulfill({
+      json: {
+        serverTime: new Date().toISOString(),
+        warehouses: [{ id, name: "Kho ComsMiu" }],
+        channels: [{ id, name: "TikTok Shop" }],
+        carriers: [{ id, name: "J&T Express" }],
+        shops: [],
+        shifts: [],
+        users: [],
+        rules: [],
+        templates: [],
+        retention: [],
+        settings: {},
+        workerAvailable: false,
+        workerLastSeen: null,
+      },
+    }),
+  );
+  await page.route("https://storage.example.test/**", (route) => {
+    uploaded = true;
+    return route.fulfill({
+      json: { Key: "comsflow-private/input", Id: jobId },
+    });
+  });
+  await page.route("**/api/jobs/**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/api/jobs/uploads") {
+      expect(route.request().postDataJSON()).toMatchObject({
+        route: "returns/csv/preview",
+        filename: "tiktok.csv",
+        sha256: parsed.hash,
+      });
+      return route.fulfill({
+        json: {
+          id: jobId,
+          status: "waiting_upload",
+          path: "input",
+          token: "fixture-upload",
+          url: "https://storage.example.test",
+          key: "fixture-public",
+          bucket: "comsflow-private",
+        },
+      });
+    }
+    if (path.endsWith("/finalize"))
+      return route.fulfill({ json: { id: jobId, status: "queued" } });
+    if (path.endsWith("/csv-preview")) {
+      expect(uploaded).toBe(true);
+      return route.fulfill({ json: preview });
+    }
+    if (path.endsWith("/commit")) {
+      commitCalls++;
+      if (!committed) {
+        committed = true;
+        return route.abort("failed");
+      }
+      return route.fulfill({
+        json: {
+          id,
+          created: 1,
+          updated: 0,
+          reused: false,
+          _csvDirect: true,
+          _jobId: jobId,
+        },
+      });
+    }
+    polled++;
+    return route.fulfill({
+      json: { id: jobId, status: "queued", workerAvailable: false },
+    });
+  });
+  await page.goto("/#returns/import");
+  await page
+    .getByLabel("File đơn hoàn", { exact: true })
+    .setInputFiles({ name: "tiktok.csv", mimeType: "text/csv", buffer: bytes });
+  await page.getByRole("button", { name: "Đọc và đối chiếu đơn hoàn" }).click();
+  const save = page.getByRole("button", {
+    name: /Xác nhận lưu 1 yêu cầu hoàn/,
+  });
+  await expect(save).toBeEnabled();
+  await expect(page.getByText("Đã lưu nguồn", { exact: true })).toHaveCount(0);
+  await save.click();
+  await expect(
+    page.getByText(/Chưa nhận được xác nhận từ máy chủ/),
+  ).toBeVisible();
+  await expect(save).toBeEnabled();
+  await save.click();
+  await expect(
+    page.getByText(/Đã nhập · 1 yêu cầu mới · 0 yêu cầu cập nhật/),
+  ).toBeVisible();
+  expect(commitCalls).toBe(2);
+  expect(polled).toBe(0);
+  await expect(save).toBeDisabled();
 });
 test("first-admin setup explains disabled status and can recheck after configuration", async ({
   page,

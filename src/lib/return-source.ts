@@ -1,5 +1,5 @@
 export { reasonGroups } from "./return-domain";
-import type { ReturnRow } from "./return-import";
+import type { ReturnRow } from "./return-table";
 import { createHash } from "node:crypto";
 // Empty cells are absence, never an instruction to remove stored source data.
 const present = (x: unknown) => x !== "" && x !== null && x !== undefined;

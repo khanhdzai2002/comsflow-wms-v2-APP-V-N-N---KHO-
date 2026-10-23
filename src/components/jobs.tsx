@@ -78,7 +78,8 @@ export function DataJobs() {
       {stale && (
         <div className="notice warning">
           <AlertCircle size={18} /> Worker xử lý file chưa kết nối gần đây. Tác
-          vụ được giữ trong hàng đợi; quét đơn vẫn hoạt động riêng.
+          vụ được giữ trong hàng đợi; quét đơn vẫn hoạt động riêng. CSV mẫu
+          TikTok Shop nhập trực tiếp tại Quản lý đơn hoàn, không cần worker này.
         </div>
       )}
       <section className="card padded">
@@ -144,6 +145,16 @@ export function DataJobs() {
                     >
                       Xem chi tiết
                     </button>
+                    {job.route === "returns/csv/preview" &&
+                      job.status === "queued" && (
+                        <button
+                          className="secondary"
+                          disabled={busy}
+                          onClick={() => act("jobs/" + job.id + "/csv-preview")}
+                        >
+                          Đọc CSV trực tiếp
+                        </button>
+                      )}
                     {job.status === "failed" && (
                       <button
                         className="secondary"
@@ -189,7 +200,7 @@ export function DataJobs() {
             detail.data.status === "succeeded" && (
               <button
                 className="primary"
-                disabled={busy}
+                disabled={busy || detail.data.result?.canCommit === false}
                 onClick={() => {
                   if (
                     window.confirm(

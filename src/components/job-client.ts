@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { RETURN_CSV_MAX_BYTES } from "@/lib/return-csv-format";
 function canonical(value: any): string {
   if (Array.isArray(value)) return "[" + value.map(canonical).join(",") + "]";
   if (value && typeof value === "object")
@@ -64,6 +65,18 @@ export async function waitJob(id: string) {
 export async function fileJob(route: string, form: FormData) {
   const file = form.get("file");
   if (!(file instanceof File)) throw new Error("Chọn file để tiếp tục");
+  const sourceContext = JSON.parse(String(form.get("context") || "{}"));
+  const directCsv =
+    /\.csv$/i.test(file.name) &&
+    /^returns\/import\/(preview|commit)$/.test(route) &&
+    sourceContext.channel !== "Shopee";
+  if (directCsv) {
+    if (file.size > RETURN_CSV_MAX_BYTES)
+      throw new Error(
+        "CSV TikTok nhập trực tiếp tối đa 1 MB / 2.000 dòng. Chia nhỏ file lớn trước khi nhập.",
+      );
+    route = route.replace("returns/import/", "returns/csv/");
+  }
   const hash = Array.from(
     new Uint8Array(
       await crypto.subtle.digest("SHA-256", await file.arrayBuffer()),
@@ -72,7 +85,7 @@ export async function fileJob(route: string, form: FormData) {
     .map((x) => x.toString(16).padStart(2, "0"))
     .join("");
   const payload = {
-    context: JSON.parse(String(form.get("context") || "{}")),
+    context: sourceContext,
     mapping: JSON.parse(String(form.get("mapping") || "{}")),
   };
   delete payload.context.previewFingerprint;
@@ -95,7 +108,8 @@ export async function fileJob(route: string, form: FormData) {
   if (route.endsWith("/commit")) {
     if (!cached.id)
       throw new Error("Hãy đọc và xem trước file trước khi xác nhận lưu");
-    await requestJob("jobs/" + cached.id + "/commit", {});
+    const result = await requestJob("jobs/" + cached.id + "/commit", {});
+    if (directCsv) return result;
     return waitJob(cached.id);
   }
   if (cached.id) {
@@ -150,6 +164,8 @@ export async function fileJob(route: string, form: FormData) {
   }
   await requestJob("jobs/" + cached.id + "/finalize", {});
   try {
+    if (directCsv)
+      return await requestJob("jobs/" + cached.id + "/csv-preview", {});
     return await waitJob(cached.id!);
   } catch (error) {
     const job = await requestJob("jobs/" + cached.id).catch(() => null);
@@ -157,4 +173,35 @@ export async function fileJob(route: string, form: FormData) {
       localStorage.removeItem(key);
     throw error;
   }
+}
+
+export function downloadCsvErrors(
+  errors: { row: number; message: string; raw: Record<string, string> }[],
+) {
+  const headers = [...new Set(errors.flatMap((e) => Object.keys(e.raw)))];
+  const cell = (value: unknown) => {
+    let text = String(value ?? "");
+    if (/^[\s\u0000-\u001f]*[=+@-]/.test(text)) text = "'" + text;
+    return '"' + text.replaceAll('"', '""') + '"';
+  };
+  const rows = [
+    ["Dòng", "Lỗi", ...headers],
+    ...errors.map((e) => [
+      String(e.row),
+      e.message,
+      ...headers.map((h) => e.raw[h] ?? ""),
+    ]),
+  ];
+  const url = URL.createObjectURL(
+    new Blob(["\uFEFF" + rows.map((r) => r.map(cell).join(",")).join("\r\n")], {
+      type: "text/csv;charset=utf-8",
+    }),
+  );
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "loi-don-hoan-tiktok.csv";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

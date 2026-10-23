@@ -4,6 +4,7 @@ import { db, type User } from "./db";
 import { AppError, requireRole, managerRoles } from "./domain";
 import { storage } from "./supabase";
 import { environment } from "../server/context";
+import { RETURN_CSV_ROUTE, RETURN_CSV_MAX_BYTES } from "./return-csv-format";
 export const fileRoutes = [
   "sources/preview",
   "sources/commit",
@@ -14,6 +15,7 @@ export const fileRoutes = [
   "returns/import/errors",
   "returns/sales/preview",
   "returns/sales/commit",
+  RETURN_CSV_ROUTE,
 ];
 export function reportRoute(path: string, params: URLSearchParams) {
   return (
@@ -63,6 +65,14 @@ export async function createUpload(user: User, raw: unknown) {
     .parse(raw);
   if (data.route.endsWith("/commit"))
     throw new AppError(409, "Cần xem trước file trước khi xác nhận lưu");
+  if (
+    data.route === RETURN_CSV_ROUTE &&
+    (!/\.csv$/i.test(data.filename) || data.size > RETURN_CSV_MAX_BYTES)
+  )
+    throw new AppError(
+      413,
+      "CSV TikTok nhập trực tiếp tối đa 1 MB / 2.000 dòng. Chia nhỏ file lớn trước khi nhập.",
+    );
   if (data.size > (data.route.startsWith("sources/") ? 50 : 5) * 1024 * 1024)
     throw new AppError(413, "PDF tối đa 50 MB; Excel/CSV tối đa 5 MB");
   if (
@@ -150,7 +160,7 @@ export async function claimJob() {
   const sql = db(),
     token = randomUUID();
   const [row] =
-    await sql`WITH candidate AS (SELECT id FROM data_jobs WHERE expires_at>now() AND attempts<max_attempts AND ((status='queued' AND next_attempt_at<=now()) OR (status='running' AND lease_expires_at<now())) ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE data_jobs j SET status='running',attempts=attempts+1,lease_token=${token},lease_expires_at=now()+interval '10 minutes',updated_at=now(),error=NULL FROM candidate c WHERE j.id=c.id RETURNING j.*`;
+    await sql`WITH candidate AS (SELECT id FROM data_jobs WHERE route NOT LIKE 'returns/csv/%' AND expires_at>now() AND attempts<max_attempts AND ((status='queued' AND next_attempt_at<=now()) OR (status='running' AND lease_expires_at<now())) ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE data_jobs j SET status='running',attempts=attempts+1,lease_token=${token},lease_expires_at=now()+interval '10 minutes',updated_at=now(),error=NULL FROM candidate c WHERE j.id=c.id RETURNING j.*`;
   return row ?? null;
 }
 export async function failJob(

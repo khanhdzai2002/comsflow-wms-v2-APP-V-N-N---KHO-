@@ -39,6 +39,10 @@ Local Wrangler dùng `.dev.vars` với cùng tên biến, được gitignore. AP
 
 ## 3. Deploy worker đọc file
 
+**Ngoại lệ CSV TikTok:** bản `2026-10-24.tiktok-csv-1` nhập mẫu CSV đơn hoàn trực tiếp qua Cloudflare/Supabase, không cần Render hoặc Node processor. Giới hạn riêng **1 MB / 2.000 dòng**, phù hợp mẫu 777 yêu cầu do chủ dự án cung cấp. Không cần migration, binding hay secret mới. Sau rollout, dùng **Quản lý đơn hoàn → Nhập dữ liệu đơn hoàn**, chọn CSV gốc, đọc/đối chiếu và xác nhận lưu. CSV sàn khác, XLSX/PDF và các báo cáo cũ vẫn dùng processor bên dưới.
+
+CSV gốc được tải trực tiếp lên private Storage. API tải lại, xác minh kích thước/SHA-256 và kiểm tra các trường; không tin các dòng đã chuẩn hóa hoặc fingerprint do browser gửi. Preview và commit là hai thao tác riêng. Toàn bộ hồ sơ, SKU, kiện, snapshot, audit và kết quả job lưu trong cùng giao dịch; retry commit nhận kết quả đã lưu. Nếu F5 sau upload, chọn lại file để tiếp tục hoặc bấm **Đọc CSV trực tiếp** trong Tác vụ dữ liệu. Job CSV được loại khỏi hàng đợi Node. Không coi trạng thái preview hoàn tất là dữ liệu đã được nhập.
+
 Có `Dockerfile.worker` và `render.yaml`. Worker không cần public HTTP port. Có thể dùng VM/Docker hoặc dịch vụ background worker khác; không đặt vòng lặp này trong một Cloudflare request hoặc Supabase Edge Function.
 
 - Build: `docker build -f Dockerfile.worker -t comsflow-worker .`

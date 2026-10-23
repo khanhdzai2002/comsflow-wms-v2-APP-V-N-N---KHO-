@@ -16,7 +16,8 @@ export function CatalogReadiness({ refs, user }: { refs: Row; user: User }) {
           <p>
             Dịch vụ xử lý file chưa kết nối gần đây. Nhập PDF/Excel và xuất báo
             cáo cần dịch vụ này; xem trạng thái tại{" "}
-            <a href="#jobs">Tác vụ dữ liệu</a>.
+            <a href="#jobs">Tác vụ dữ liệu</a>. CSV mẫu TikTok Shop có thể nhập
+            trực tiếp tại Quản lý đơn hoàn.
           </p>
         </div>
       )}

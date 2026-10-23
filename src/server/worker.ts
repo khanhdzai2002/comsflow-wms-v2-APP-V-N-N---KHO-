@@ -16,6 +16,7 @@ import {
 import { storage } from "../lib/supabase";
 import { workerHealth } from "../lib/worker-health";
 import { APP_REVISION } from "../lib/app-version";
+import { processReturnCsv } from "../lib/return-csv-job";
 async function route(req: AppRequest) {
   const path = req.nextUrl.pathname.replace(/^\/api\//, "");
   if (
@@ -82,7 +83,11 @@ async function route(req: AppRequest) {
   }
   const [, id, action] = path.split("/");
   const job = await ownedJob(user, id);
+  if (action === "csv-preview" && req.method === "POST")
+    return AppResponse.json(await processReturnCsv(user, id, false));
   if (action === "commit" && req.method === "POST") {
+    if (job.route.startsWith("returns/csv/"))
+      return AppResponse.json(await processReturnCsv(user, id, true));
     const result = await db().begin(async (tx) => {
       const [current] =
         await tx`SELECT * FROM data_jobs WHERE id=${id} AND created_by=${user.id} FOR UPDATE`;

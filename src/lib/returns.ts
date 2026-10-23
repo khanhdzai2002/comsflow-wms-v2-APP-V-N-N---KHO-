@@ -1,5 +1,5 @@
 import { warehouseIdSchema } from "./domain";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { carrierCatalog, identifyCarrier } from "./carriers";
 import {
   mergeReturnSource,
@@ -16,7 +16,7 @@ import {
   normalizeCode,
   validCode,
 } from "./domain";
-import type { ReturnFile, ReturnRow } from "./return-import";
+import type { ReturnFile, ReturnRow } from "./return-table";
 import { returnProcessing, platformApproved } from "./return-domain";
 
 const contextSchema = z.object({
@@ -266,34 +266,35 @@ export async function commitReturns(
       statusCount = 0,
       financeCount = 0;
     const existingByExternal = new Map(existing.map((r) => [r.external_id, r]));
+    const cases: Record<string, any>[] = [],
+      items: Record<string, any>[] = [],
+      snapshots: Record<string, any>[] = [],
+      events: Record<string, any>[] = [],
+      changes: Record<string, any>[] = [];
+    const oldParcels = existing.length
+      ? await tx`SELECT * FROM return_parcels WHERE case_id=ANY(${existing.map((r) => r.id)}::uuid[])`
+      : [];
+    const previousParcels = new Map(
+      oldParcels.map((p) => [p.case_id + ":" + p.tracking_code, p]),
+    );
+    const parcels = new Map<string, Record<string, any>>();
+    const signature = (rows: ReturnRow[]) =>
+      JSON.stringify(
+        rows
+          .map((x) => [x.itemKey, x.quantity])
+          .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+      );
     for (const [external, group] of groups) {
-      let current = existingByExternal.get(external);
+      const current = existingByExternal.get(external);
+      const caseId = current?.id ?? randomUUID();
       const merged = current
         ? mergeReturnSource(current.source_data, group)
         : group;
       const row = merged.find((x) => x.itemKey === group[0].itemKey)!;
       const digest = sourceDigest(merged);
       const fields = sourceChanges(current?.source_data ?? [], merged);
-      if (!current) {
-        [current] =
-          await tx`INSERT INTO return_cases(shop_id,warehouse_id,external_id,order_code,requested_at,platform_status,platform_substatus,return_type,source_data,source_hash,last_import_id)
-    VALUES(${shop.id},${c.warehouseId},${external},${row.order},${row.requested},${row.status},${row.substatus},${row.type},${tx.json(group)},${digest},${batch.id}) RETURNING *`;
-        created++;
-      } else if (fields.length) {
-        const signature = (rows: ReturnRow[]) =>
-          JSON.stringify(
-            rows
-              .map((x) => [x.itemKey, x.quantity])
-              .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
-          );
-        const previous = current.source_data as ReturnRow[];
-        const sourceRequiresCheck =
-          signature(previous) !== signature(merged) ||
-          group.some(
-            (x) =>
-              x.tracking && !previous.some((y) => y.tracking === x.tracking),
-          );
-        await tx`UPDATE return_cases SET requested_at=${row.requested},platform_status=${row.status},platform_substatus=${row.substatus},return_type=${row.type},source_data=${tx.json(merged)},source_hash=${digest},last_import_id=${batch.id},inspection_stale=(inspection_stale OR (${sourceRequiresCheck} AND inspection_status<>'pending')),version=version+1,updated_at=now() WHERE id=${current.id}`;
+      if (!current) created++;
+      else if (fields.length) {
         updated++;
         if (
           fields.some(
@@ -303,43 +304,126 @@ export async function commitReturns(
         )
           statusCount++;
         if (fields.some((x) => x.financial)) financeCount++;
-      } else {
-        unchanged++;
-        await tx`UPDATE return_cases SET last_import_id=${batch.id} WHERE id=${current.id}`;
-      }
-      if (!current) throw new AppError(500, "Không tạo được hồ sơ hoàn");
+      } else unchanged++;
+      const needsInspection =
+        !!current &&
+        (signature(current.source_data) !== signature(merged) ||
+          group.some(
+            (x) =>
+              x.tracking &&
+              !current.source_data.some(
+                (y: ReturnRow) => y.tracking === x.tracking,
+              ),
+          ));
       const originalReason = String(
         row.meta?.reason ??
           row.raw["Return Reason"] ??
-          current.reason_original ??
+          current?.reason_original ??
           "",
       );
-      await tx`UPDATE return_cases SET reason_original=${originalReason},reason_group=${classifyReason(originalReason, reasonRules)} WHERE id=${current.id}`;
+      cases.push({
+        id: caseId,
+        is_new: !current,
+        changed: fields.length > 0,
+        external_id: external,
+        order_code: row.order,
+        requested_at: row.requested,
+        platform_status: row.status,
+        platform_substatus: row.substatus,
+        return_type: row.type,
+        source_data: merged,
+        source_hash: digest,
+        needs_inspection: needsInspection,
+        reason_original: originalReason,
+        reason_group: classifyReason(originalReason, reasonRules),
+      });
       if (fields.length)
-        await tx`INSERT INTO return_import_changes(import_id,case_id,external_id,changes) VALUES(${batch.id},${current.id},${external},${tx.json(fields)})`;
-      // A later export may contain only some SKUs. Keep previously sourced items;
-      // absence from a file is not evidence that a return item was cancelled.
+        changes.push({
+          case_id: caseId,
+          external_id: external,
+          changes: fields,
+        });
+      // A later source can omit SKUs. Only upsert incoming items; retain prior items and warehouse work.
       for (const incoming of group) {
         const item = merged.find((x) => x.itemKey === incoming.itemKey)!;
-        await tx`INSERT INTO return_items(case_id,item_key,sku_id,seller_sku,name,variant,expected_qty,unit_amount) VALUES(${current.id},${item.itemKey},${item.sku},${item.sellerSku},${item.name},${item.variant},${item.quantity},${item.unitAmount})
-    ON CONFLICT(case_id,item_key) DO UPDATE SET seller_sku=COALESCE(NULLIF(excluded.seller_sku,''),return_items.seller_sku),name=COALESCE(NULLIF(excluded.name,''),return_items.name),variant=COALESCE(NULLIF(excluded.variant,''),return_items.variant),expected_qty=excluded.expected_qty,unit_amount=COALESCE(excluded.unit_amount,return_items.unit_amount),active=true`;
+        items.push({
+          case_id: caseId,
+          item_key: item.itemKey,
+          sku_id: item.sku,
+          seller_sku: item.sellerSku,
+          name: item.name,
+          variant: item.variant,
+          expected_qty: item.quantity,
+          unit_amount: item.unitAmount,
+        });
         if (item.tracking) {
-          const [priorParcel] =
-            await tx`SELECT * FROM return_parcels WHERE case_id=${current.id} AND tracking_code=${item.tracking}`;
+          const key = caseId + ":" + item.tracking;
+          const prior = previousParcels.get(key);
           const identity = identifyCarrier(
             catalog,
             item.tracking,
             item.sourceCarrier,
-            priorParcel?.carrier_origin === "manual"
-              ? priorParcel.carrier_id
-              : null,
+            prior?.carrier_origin === "manual" ? prior.carrier_id : null,
           );
-          await tx`INSERT INTO return_parcels(case_id,tracking_code,carrier_id,source_carrier,carrier_conflict,carrier_origin) VALUES(${current.id},${item.tracking},${identity.carrierId},${item.sourceCarrier ?? ""},${identity.conflict},${identity.origin}) ON CONFLICT(case_id,tracking_code) DO UPDATE SET source_carrier=excluded.source_carrier,carrier_conflict=excluded.carrier_conflict,carrier_id=CASE WHEN return_parcels.carrier_origin='manual' THEN return_parcels.carrier_id ELSE excluded.carrier_id END,carrier_origin=CASE WHEN return_parcels.carrier_origin='manual' THEN 'manual' ELSE excluded.carrier_origin END`;
+          parcels.set(key, {
+            case_id: caseId,
+            tracking_code: item.tracking,
+            carrier_id: identity.carrierId,
+            source_carrier: item.sourceCarrier ?? "",
+            carrier_conflict: identity.conflict,
+            carrier_origin: identity.origin,
+          });
         }
-        await tx`INSERT INTO return_snapshots(import_id,row_number,case_id,raw) VALUES(${batch.id},${incoming.row},${current.id},${tx.json(incoming.raw)})`;
+        snapshots.push({
+          row_number: incoming.row,
+          case_id: caseId,
+          raw: incoming.raw,
+        });
       }
-      await tx`INSERT INTO return_events(case_id,actor_id,action,data) VALUES(${current.id},${user.id},'import',${tx.json({ importId: batch.id, previousSourceHash: current.source_hash, sourceHash: digest, changes: fields })})`;
+      events.push({
+        case_id: caseId,
+        data: {
+          importId: batch.id,
+          previousSourceHash: current?.source_hash ?? digest,
+          sourceHash: digest,
+          changes: fields,
+        },
+      });
     }
+    // A bounded number of SQL statements for the whole file: no request per item.
+    // Every write, including import history, remains in the same transaction.
+    await tx`INSERT INTO return_cases(id,shop_id,warehouse_id,external_id,order_code,requested_at,platform_status,platform_substatus,return_type,source_data,source_hash,last_import_id,reason_original,reason_group)
+      SELECT x.id,${shop.id},${c.warehouseId},x.external_id,x.order_code,x.requested_at,x.platform_status,x.platform_substatus,x.return_type,x.source_data,x.source_hash,${batch.id},x.reason_original,x.reason_group
+      FROM jsonb_to_recordset(${tx.json(cases)}) AS x(id uuid,is_new boolean,external_id text,order_code text,requested_at timestamptz,platform_status text,platform_substatus text,return_type text,source_data jsonb,source_hash text,reason_original text,reason_group text) WHERE x.is_new`;
+    await tx`UPDATE return_cases r SET
+      requested_at=CASE WHEN x.changed THEN x.requested_at ELSE r.requested_at END,
+      platform_status=CASE WHEN x.changed THEN x.platform_status ELSE r.platform_status END,
+      platform_substatus=CASE WHEN x.changed THEN x.platform_substatus ELSE r.platform_substatus END,
+      return_type=CASE WHEN x.changed THEN x.return_type ELSE r.return_type END,
+      source_data=CASE WHEN x.changed THEN x.source_data ELSE r.source_data END,
+      source_hash=CASE WHEN x.changed THEN x.source_hash ELSE r.source_hash END,
+      last_import_id=${batch.id},reason_original=x.reason_original,reason_group=x.reason_group,
+      inspection_stale=(r.inspection_stale OR (x.changed AND x.needs_inspection AND r.inspection_status<>'pending')),
+      version=r.version+CASE WHEN x.changed THEN 1 ELSE 0 END,
+      updated_at=CASE WHEN x.changed THEN now() ELSE r.updated_at END
+      FROM jsonb_to_recordset(${tx.json(cases)}) AS x(id uuid,is_new boolean,changed boolean,requested_at timestamptz,platform_status text,platform_substatus text,return_type text,source_data jsonb,source_hash text,needs_inspection boolean,reason_original text,reason_group text)
+      WHERE r.id=x.id AND NOT x.is_new`;
+    await tx`INSERT INTO return_items(case_id,item_key,sku_id,seller_sku,name,variant,expected_qty,unit_amount)
+      SELECT x.case_id,x.item_key,x.sku_id,x.seller_sku,x.name,x.variant,x.expected_qty,x.unit_amount
+      FROM jsonb_to_recordset(${tx.json(items)}) AS x(case_id uuid,item_key text,sku_id text,seller_sku text,name text,variant text,expected_qty integer,unit_amount numeric)
+      ON CONFLICT(case_id,item_key) DO UPDATE SET seller_sku=COALESCE(NULLIF(excluded.seller_sku,''),return_items.seller_sku),name=COALESCE(NULLIF(excluded.name,''),return_items.name),variant=COALESCE(NULLIF(excluded.variant,''),return_items.variant),expected_qty=excluded.expected_qty,unit_amount=COALESCE(excluded.unit_amount,return_items.unit_amount),active=true`;
+    if (parcels.size)
+      await tx`INSERT INTO return_parcels(case_id,tracking_code,carrier_id,source_carrier,carrier_conflict,carrier_origin)
+      SELECT x.case_id,x.tracking_code,x.carrier_id,x.source_carrier,x.carrier_conflict,x.carrier_origin
+      FROM jsonb_to_recordset(${tx.json([...parcels.values()])}) AS x(case_id uuid,tracking_code text,carrier_id uuid,source_carrier text,carrier_conflict boolean,carrier_origin text)
+      ON CONFLICT(case_id,tracking_code) DO UPDATE SET source_carrier=excluded.source_carrier,carrier_conflict=excluded.carrier_conflict,carrier_id=CASE WHEN return_parcels.carrier_origin='manual' THEN return_parcels.carrier_id ELSE excluded.carrier_id END,carrier_origin=CASE WHEN return_parcels.carrier_origin='manual' THEN 'manual' ELSE excluded.carrier_origin END`;
+    await tx`INSERT INTO return_snapshots(import_id,row_number,case_id,raw)
+      SELECT ${batch.id},x.row_number,x.case_id,x.raw FROM jsonb_to_recordset(${tx.json(snapshots)}) AS x(row_number integer,case_id uuid,raw jsonb)`;
+    if (changes.length)
+      await tx`INSERT INTO return_import_changes(import_id,case_id,external_id,changes)
+      SELECT ${batch.id},x.case_id,x.external_id,x.changes FROM jsonb_to_recordset(${tx.json(changes)}) AS x(case_id uuid,external_id text,changes jsonb)`;
+    await tx`INSERT INTO return_events(case_id,actor_id,action,data)
+      SELECT x.case_id,${user.id},'import',x.data FROM jsonb_to_recordset(${tx.json(events)}) AS x(case_id uuid,data jsonb)`;
     await tx`INSERT INTO return_import_results(import_id,new_count,updated_count,unchanged_count,status_count,finance_count) VALUES(${batch.id},${created},${updated},${unchanged},${statusCount},${financeCount})`;
     await audit(
       tx,

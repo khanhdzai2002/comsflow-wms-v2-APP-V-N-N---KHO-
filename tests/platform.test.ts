@@ -11,6 +11,11 @@ import {
 } from "../src/lib/jobs";
 import { executeJob } from "../src/worker/execute";
 import { makePdf, labelText, continuationText } from "./pdf-fixture";
+import { returnCsv, returnRow } from "./return-fixture";
+import { processReturnCsv } from "../src/lib/return-csv-job";
+import { parseTikTokReturnCsv } from "../src/lib/return-csv-parse";
+import { parseReturnFile } from "../src/lib/return-import";
+import { RETURN_CSV_ROUTE } from "../src/lib/return-csv-format";
 const mock = vi.hoisted(() => ({
   files: new Map<string, Buffer>(),
   failUpload: false,
@@ -74,6 +79,188 @@ beforeEach(async () => {
   await sql`INSERT INTO shipping_carriers(name) VALUES('J&T Express')`;
 });
 afterAll(() => sql.end());
+async function csvJob(rows = [returnRow()]) {
+  const bytes = returnCsv(rows);
+  const job = await createUpload(admin, {
+    route: RETURN_CSV_ROUTE,
+    filename: "returns.csv",
+    size: bytes.length,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+    payload: { context: { warehouseId: warehouse, shop: "Test" } },
+    requestKey: crypto.randomUUID(),
+  });
+  if (!("path" in job)) throw new Error("Missing test upload path");
+  mock.files.set(job.path, bytes);
+  await finalizeUpload(admin, job.id);
+  return { id: job.id, path: job.path, bytes };
+}
+it("CSV preview and concurrent commits finish without any processor, preserving original bytes and idempotency", async () => {
+  const job = await csvJob();
+  expect(await claimJob()).toBeNull();
+  const preview = await processReturnCsv(admin, job.id, false);
+  expect(preview).toMatchObject({
+    canCommit: true,
+    _csvDirect: true,
+    summary: { requests: 1 },
+  });
+  expect(await sql`SELECT id FROM return_cases`).toHaveLength(0);
+  const results = await Promise.all([
+    processReturnCsv(admin, job.id, true),
+    processReturnCsv(admin, job.id, true),
+  ]);
+  expect(results[0].id).toBe(results[1].id);
+  expect(await sql`SELECT id FROM return_cases`).toHaveLength(1);
+  expect(await sql`SELECT id FROM return_imports`).toHaveLength(1);
+  expect(
+    await sql`SELECT id FROM audit_logs WHERE action='return_import'`,
+  ).toHaveLength(1);
+  expect((await ownedJob(admin, job.id)).route).toBe("returns/csv/commit");
+  expect(mock.files.get(job.path)).toEqual(job.bytes);
+  await expect(processReturnCsv(staff, job.id, true)).rejects.toMatchObject({
+    status: 403,
+  });
+});
+it("CSV rows with errors block the complete import and original-file hash mismatch is rejected", async () => {
+  const job = await csvJob([
+    returnRow(),
+    returnRow({
+      "Return Order ID": "1234567890123456790",
+      "Return Quantity": "0",
+    }),
+  ]);
+  const preview = await processReturnCsv(admin, job.id, false);
+  expect(preview).toMatchObject({ canCommit: false, errors: [{ row: 3 }] });
+  await expect(processReturnCsv(admin, job.id, true)).rejects.toMatchObject({
+    status: 409,
+  });
+  expect(await sql`SELECT id FROM return_cases`).toHaveLength(0);
+  const valid = await csvJob();
+  const altered = Buffer.from(
+    valid.bytes.toString().replace("TEST SHIRT", "FAKE SHIRT"),
+  );
+  mock.files.set(valid.path, altered);
+  await expect(processReturnCsv(admin, valid.id, false)).rejects.toThrow(
+    "SHA-256",
+  );
+  expect((await ownedJob(admin, valid.id)).status).toBe("failed");
+  await expect(processReturnCsv(staff, valid.id, false)).rejects.toMatchObject({
+    status: 403,
+  });
+});
+it("CSV commit requires a fresh server preview and refuses cancelled or expired uploads", async () => {
+  const first = await csvJob();
+  await processReturnCsv(admin, first.id, false);
+  await processReturnCsv(admin, first.id, true);
+  const next = await csvJob([returnRow({ "Return Quantity": "2" })]);
+  await processReturnCsv(admin, next.id, false);
+  await sql`UPDATE return_cases SET version=version+1`;
+  await expect(processReturnCsv(admin, next.id, true)).rejects.toThrow(
+    "Dữ liệu đổi sau khi xem trước",
+  );
+  expect(await sql`SELECT id FROM return_imports`).toHaveLength(1);
+  await processReturnCsv(admin, next.id, false);
+  expect(await processReturnCsv(admin, next.id, true)).toMatchObject({
+    updated: 1,
+  });
+  await expect(processReturnCsv(admin, next.id, false)).rejects.toMatchObject({
+    status: 409,
+  });
+  const stopped = await csvJob();
+  await sql`UPDATE data_jobs SET status='cancelled' WHERE id=${stopped.id}`;
+  await expect(
+    processReturnCsv(admin, stopped.id, false),
+  ).rejects.toMatchObject({ status: 409 });
+  await sql`UPDATE data_jobs SET expires_at=now()-interval '1 hour' WHERE id=${first.id}`;
+  await expect(processReturnCsv(admin, first.id, true)).rejects.toMatchObject({
+    status: 410,
+  });
+});
+it("fixed TikTok CSV preserves long IDs, BOM and quoted multiline cells with the same validation as the old parser", async () => {
+  const bytes = Buffer.concat([
+    Buffer.from("\uFEFF"),
+    returnCsv([
+      returnRow({ "Buyer Note": 'Dòng 1, có dấu phẩy\nDòng 2 "ghi chú"' }),
+    ]),
+  ]);
+  expect(parseTikTokReturnCsv(bytes)).toEqual(
+    await parseReturnFile(bytes, "sample.csv"),
+  );
+  expect(() => parseTikTokReturnCsv(Buffer.alloc(1024 * 1024 + 1))).toThrow(
+    "1 MB",
+  );
+  expect(() =>
+    parseTikTokReturnCsv(
+      returnCsv(Array.from({ length: 2001 }, () => returnRow())),
+    ),
+  ).toThrow("2.000 dòng");
+  expect(() => parseTikTokReturnCsv(bytes, "Shopee")).toThrow("không khớp");
+  expect(() => parseTikTokReturnCsv(Buffer.from('a,b\n"unclosed'))).toThrow(
+    "UTF-8",
+  );
+});
+it("777 distinct return requests import in one bulk transaction without a worker", async () => {
+  const rows = Array.from({ length: 777 }, (_, i) =>
+    returnRow({
+      "Return Order ID": String(1234567890123456789n + BigInt(i)),
+      "Return Logistics Tracking ID":
+        i < 622 ? String(854160000001n + BigInt(i)) : "",
+      "Order ID": String(586000000000000001n + BigInt(i % 734)),
+    }),
+  );
+  const job = await csvJob(rows);
+  expect(await processReturnCsv(admin, job.id, false)).toMatchObject({
+    canCommit: true,
+    summary: {
+      requests: 777,
+      orders: 734,
+      tracking: 622,
+      missingTracking: 155,
+    },
+  });
+  expect(await processReturnCsv(admin, job.id, true)).toMatchObject({
+    created: 777,
+    updated: 0,
+  });
+  expect((await sql`SELECT count(*)::int n FROM return_cases`)[0].n).toBe(777);
+  expect((await sql`SELECT count(*)::int n FROM return_snapshots`)[0].n).toBe(
+    777,
+  );
+  expect((await sql`SELECT count(*)::int n FROM return_parcels`)[0].n).toBe(
+    622,
+  );
+  expect(await sql`SELECT id FROM return_imports`).toHaveLength(1);
+});
+it("a failure after bulk case writes rolls back the entire import and its durable job result", async () => {
+  const job = await csvJob([
+    returnRow(),
+    returnRow({
+      "Return Order ID": "1234567890123456790",
+      "SKU ID": "1111111111111111112",
+    }),
+  ]);
+  await processReturnCsv(admin, job.id, false);
+  await sql.unsafe(
+    "CREATE FUNCTION reject_csv_test_snapshot() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'CSV test rollback'; END $$; CREATE TRIGGER reject_csv_test_snapshot BEFORE INSERT ON return_snapshots FOR EACH ROW EXECUTE FUNCTION reject_csv_test_snapshot();",
+  );
+  try {
+    await expect(processReturnCsv(admin, job.id, true)).rejects.toThrow(
+      "CSV test rollback",
+    );
+    expect(await sql`SELECT id FROM return_cases`).toHaveLength(0);
+    expect(await sql`SELECT id FROM return_imports`).toHaveLength(0);
+    expect(
+      await sql`SELECT id FROM audit_logs WHERE action='return_import'`,
+    ).toHaveLength(0);
+    expect((await ownedJob(admin, job.id)).route).toBe(RETURN_CSV_ROUTE);
+  } finally {
+    await sql.unsafe(
+      "DROP TRIGGER reject_csv_test_snapshot ON return_snapshots; DROP FUNCTION reject_csv_test_snapshot();",
+    );
+  }
+  expect(await processReturnCsv(admin, job.id, true)).toMatchObject({
+    created: 2,
+  });
+});
 async function upload(
   bytes = makePdf([labelText(), continuationText()]),
   extra: Record<string, any> = {},
