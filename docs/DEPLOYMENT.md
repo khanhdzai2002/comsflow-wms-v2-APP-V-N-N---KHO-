@@ -28,8 +28,8 @@ Không chạy seed demo trên Supabase. Không bật `SETUP_TOKEN` sau khi đã 
 ## 2. Deploy web/API lên Cloudflare
 
 1. Đăng nhập Cloudflare bằng tài khoản của bạn; `npx wrangler login` trên máy có trình duyệt, hoặc cấu hình API token trong secret của CI.
-2. Giữ tên Worker mới `comsflow-wms-v2` trong `wrangler.jsonc`; không tái sử dụng Worker KOC HUB.
-3. SUPABASE_URL và SUPABASE_ANON_KEY công khai của project đã được cấu hình trong `wrangler.jsonc`. Thêm secrets qua `npx wrangler secret put TEN_BIEN`, nhập riêng từng giá trị: DATABASE_URL, SUPABASE_SERVICE_ROLE_KEY, APP_ORIGIN. Không khai báo cùng tên đồng thời là secret và vars. APP_ORIGIN là origin HTTPS chính xác của app mới, không có path/trailing slash. Không đưa key bí mật vào biến VITE_*.
+2. Giữ tên Worker `comsflow-wms-v2-app-v-n-n---kho` đã được chủ dự án tạo và đã cấu hình trong `wrangler.jsonc`; không tái sử dụng Worker KOC HUB.
+3. APP_ORIGIN, SUPABASE_URL và SUPABASE_ANON_KEY công khai của project đã được cấu hình trong `wrangler.jsonc`. Thêm secrets qua `npx wrangler secret put TEN_BIEN`, nhập riêng từng giá trị: DATABASE_URL, SUPABASE_SERVICE_ROLE_KEY. Không khai báo cùng tên đồng thời là secret và vars. APP_ORIGIN hiện là `https://comsflow-wms-v2-app-v-n-n---kho.comsflow-apps.workers.dev`; nếu đã tự đặt secret APP_ORIGIN thì bỏ binding secret trùng tên trước khi deploy cấu hình này. Không đưa key bí mật vào biến VITE_*.
 4. `npm run deploy`. Cloudflare tạo URL Worker; cập nhật APP_ORIGIN và Supabase Site URL đúng URL đó nếu ban đầu dùng placeholder. Không báo hoàn tất khi chưa mở được `/health` và `/api/health`.
 5. Kiểm tra đăng nhập tài khoản thử, role admin/staff, khóa user và origin. Dùng gói Workers đủ CPU cho API production; kiểm tra giới hạn và chi phí hiện hành trong dashboard.
 

@@ -7,7 +7,7 @@ Supabase đã được chủ dự án xác nhận có 17 migration. Mã nguồn 
 1. Đăng nhập https://dash.cloudflare.com, chọn tài khoản đang sử dụng.
 2. Vào **Workers & Pages → Create application**. Chọn tạo **Worker** và kết nối/import repository GitHub (tên nút có thể là **Import a repository / Connect Git**).
 3. Chọn repository `comsflow-wms-v2-APP-V-N-N---KHO-`, branch `main`. Nếu không thấy repo private, mở cấu hình GitHub App của Cloudflare và cấp quyền cho đúng repo mới này, rồi tải lại danh sách.
-4. Đặt tên Worker **`comsflow-wms-v2`**, phù hợp `wrangler.jsonc`.
+4. Worker đã được chủ dự án tạo với tên **`comsflow-wms-v2-app-v-n-n---kho`**; `wrangler.jsonc` đã được cập nhật khớp tên này. Không tạo thêm Worker khác để thay thế.
 
 ## 2. Build và deploy
 
@@ -27,9 +27,8 @@ Sau khi Worker được tạo, mở **Worker → Settings → Variables and Secr
 
 - `DATABASE_URL`: lấy từ **Supabase → Connect**, chọn pooler phù hợp và SSL. Chọn đúng project `lyeyjfvxmqruszgfrjze`; mật khẩu chứa ký tự đặc biệt cần URL-encode.
 - `SUPABASE_SERVICE_ROLE_KEY`: lấy legacy `service_role` key của cùng project, chỉ dùng trên server. Không gửi vào chat, Git, frontend hoặc biến `VITE_*`.
-- `APP_ORIGIN`: origin HTTPS chính xác của Worker mới, ví dụ domain Cloudflare vừa cấp, không thêm `/` cuối hoặc đường dẫn.
 
-`SUPABASE_URL`, Publishable key (`SUPABASE_ANON_KEY`), `STORAGE_BUCKET` đã có trong `wrangler.jsonc`; không tạo thêm secret trùng tên các vars này. Secrets của **build environment** và **runtime Worker** có thể nằm ở hai màn hình khác nhau; các biến trên phải tồn tại ở runtime.
+`APP_ORIGIN`, `SUPABASE_URL`, Publishable key (`SUPABASE_ANON_KEY`), `STORAGE_BUCKET` đã có trong `wrangler.jsonc`; không tạo thêm secret trùng tên các vars này. Domain đã cấu hình là `https://comsflow-wms-v2-app-v-n-n---kho.comsflow-apps.workers.dev`. Nếu trước đó đã tự khai báo `APP_ORIGIN` là secret, cần bỏ binding secret trùng tên để Wrangler quản lý bằng vars. Secrets của **build environment** và **runtime Worker** có thể nằm ở hai màn hình khác nhau; DATABASE_URL và SUPABASE_SERVICE_ROLE_KEY phải tồn tại ở runtime.
 
 Mở `/health` để kiểm tra runtime và `/api/health` để kiểm tra database. Hai bước này chưa chứng minh đã có tài khoản, đã chuyển dữ liệu hoặc worker đọc file hoạt động.
 

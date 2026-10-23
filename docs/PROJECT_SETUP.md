@@ -16,6 +16,8 @@ Chủ dự án đã tạo repository mới: https://github.com/khanhdzai2002/com
 
 Sau khi chủ dự án cấp quyền cho repo mới, `git push -u origin main` đã thành công. Đã xác nhận SHA của `refs/heads/main` trên GitHub khớp bản local. GitHub Actions API vẫn trả `Forbidden`, nên chưa xác minh kết quả CI trên GitHub. Không có Cloudflare deployment credentials trong môi trường hiện tại; chưa triển khai web/worker hoặc chuyển dữ liệu Railway. Không cần gửi token hoặc mật khẩu vào chat.
 
+Chủ dự án đã kết nối repository với Cloudflare và cung cấp domain `comsflow-wms-v2-app-v-n-n---kho.comsflow-apps.workers.dev`. Đã cập nhật tên Worker và APP_ORIGIN tương ứng trong cấu hình. Dấu `-` đứng trước URL trong tin nhắn được hiểu là dấu đầu dòng, không phải một phần hostname; tên Worker khớp ảnh dashboard đã cung cấp. Chưa xác minh health endpoint vì proxy môi trường Codex chặn request CONNECT với 403; không coi lỗi proxy này là lỗi từ ứng dụng. Còn cần runtime secrets, tài khoản/dữ liệu và worker nền trước khi vận hành.
+
 Tiếp tục bằng [Cloudflare Dashboard](CLOUDFLARE_DASHBOARD.md); không cần tải ZIP hay cài terminal trên máy người dùng.
 
 ## Khởi tạo bằng SQL Editor, không cần terminal

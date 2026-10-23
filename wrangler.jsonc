@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "comsflow-wms-v2",
+  "name": "comsflow-wms-v2-app-v-n-n---kho",
   "main": "src/server/worker.ts",
   "compatibility_date": "2026-10-23",
   "compatibility_flags": ["nodejs_compat"],
@@ -12,6 +12,7 @@
   },
   "observability": { "enabled": true, "head_sampling_rate": 0.1 },
   "vars": {
+    "APP_ORIGIN": "https://comsflow-wms-v2-app-v-n-n---kho.comsflow-apps.workers.dev",
     "DB_MAX_CONNECTIONS": "1",
     "STORAGE_BUCKET": "comsflow-private",
     "SUPABASE_URL": "https://lyeyjfvxmqruszgfrjze.supabase.co",
