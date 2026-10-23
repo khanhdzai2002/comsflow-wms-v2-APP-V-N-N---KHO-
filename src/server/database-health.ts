@@ -8,7 +8,7 @@ import {
 import { environment } from "./context";
 import { databaseErrorLog } from "./database-error-log";
 import { AppResponse } from "./http";
-const diagnosticVersion = "2026-10-23.6";
+const diagnosticVersion = "2026-10-23.7";
 const healthHeaders = {
   "Cache-Control": "no-store",
   "X-ComsFlow-Diagnostic-Version": diagnosticVersion,
@@ -62,6 +62,7 @@ export async function databaseHealth() {
         diagnosticVersion,
         diagnostics,
         configuration: {
+          connectionMode: env.HYPERDRIVE ? "hyperdrive" : "direct",
           databaseUrlPresent: !!(
             env.DATABASE_URL?.trim() || env.HYPERDRIVE?.connectionString
           ),

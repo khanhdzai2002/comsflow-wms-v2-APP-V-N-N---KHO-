@@ -17,7 +17,13 @@ export function databaseConnection(
   applicationName = "comsflow-web",
   statementTimeout = 30000,
 ) {
-  let value = env.HYPERDRIVE?.connectionString || env.DATABASE_URL;
+  const hyperdrive = Boolean(env.HYPERDRIVE);
+  if (hyperdrive && !env.HYPERDRIVE?.connectionString?.trim())
+    fail(
+      "DB_HYPERDRIVE_MISSING",
+      "Binding HYPERDRIVE chưa có chuỗi kết nối. Kiểm tra binding và cấu hình Hyperdrive của Worker; app không tự chuyển sang DATABASE_URL khi binding lỗi.",
+    );
+  let value = hyperdrive ? env.HYPERDRIVE!.connectionString : env.DATABASE_URL;
   if (!value?.trim())
     fail(
       "DB_URL_MISSING",
@@ -99,6 +105,8 @@ export function databaseConnection(
         "DB_POOLER_USER_INVALID",
         "Username Pooler phải có dạng postgres.PROJECT_REF của đúng project. Sao chép URI ở Supabase → Connect → Transaction pooler, không dùng username postgres đơn lẻ.",
       );
+  }
+  if (pooler || hyperdrive) {
     // ORM-only query options are not PostgreSQL startup parameters. Supavisor
     // can reject connections if these are sent in the startup packet.
     for (const name of [
@@ -112,22 +120,36 @@ export function databaseConnection(
   }
   const sslMode =
     url!.searchParams.get("sslmode") ?? url!.searchParams.get("ssl");
-  if (supabase && ["disable", "false", "0"].includes(sslMode || ""))
+  if (
+    !hyperdrive &&
+    supabase &&
+    ["disable", "false", "0"].includes(sslMode || "")
+  )
     fail(
       "DB_TLS_REQUIRED",
       "Kết nối Supabase cần TLS. Bỏ sslmode=disable hoặc đổi thành sslmode=require trong DATABASE_URL.",
     );
   return {
     url: url!.toString(),
+    mode: hyperdrive ? ("hyperdrive" as const) : ("direct" as const),
+    // Hyperdrive owns TLS to the origin. Its binding exposes an internal
+    // transport endpoint; never STARTTLS that endpoint a second time.
     secure:
-      supabase ||
-      Boolean(sslMode && !["disable", "false", "0"].includes(sslMode)),
+      !hyperdrive &&
+      (supabase ||
+        Boolean(sslMode && !["disable", "false", "0"].includes(sslMode))),
     options: {
-      ...(supabase && !sslMode ? { ssl: "require" as const } : {}),
+      ...(hyperdrive
+        ? { ssl: false as const }
+        : supabase && !sslMode
+          ? { ssl: "require" as const }
+          : {}),
       prepare: false,
       connection: {
         application_name: applicationName,
-        ...(!pooler ? { statement_timeout: statementTimeout } : {}),
+        ...(!pooler && !hyperdrive
+          ? { statement_timeout: statementTimeout }
+          : {}),
       },
     },
   };

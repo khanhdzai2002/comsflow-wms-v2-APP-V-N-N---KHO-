@@ -79,3 +79,7 @@ Bản chẩn đoán `.5` thay đường socket của API Cloudflare bằng adapt
 Mỗi request dùng một connection pool max = 1, tối đa 2 lần tạo transport và deadline 10 giây cho connect/TLS. Đóng lỗi trong startup được trả về ngay thay vì vòng reconnect không giới hạn. Lỗi `Too many subrequests` được phân loại `DB_SUBREQUEST_LIMIT`; không tăng quota để che vòng lặp. Worker Node đọc file giữ driver Node riêng. Không cần thay mật khẩu chỉ vì lỗi quota này.
 
 Bản `.6` đợi đọc hết stream tới EOF trước khi báo socket đóng bình thường, giữ nguyên ErrorResponse/SQLSTATE mà máy chủ đã gửi trong buffer. Lỗi transport còn có `diagnostics.transportStage` trong danh sách cố định và bộ đếm `sentBytes`/`receivedBytes` (không chứa payload), giúp phân biệt lỗi TCP/TLS với đóng trước/sau phản hồi PostgreSQL. Đây không phải bằng chứng mật khẩu sai nếu chưa có SQLSTATE/response thực.
+
+## Đường kết nối Hyperdrive
+
+Mã đã hỗ trợ binding HYPERDRIVE ưu tiên URI trực tiếp, xem [HYPERDRIVE.md](HYPERDRIVE.md). Resource chưa được tạo/gắn tự động: cần chủ tài khoản tạo và cung cấp ID không bí mật để đưa vào cấu hình Git. Query caching phải tắt. Origin vẫn là Supabase, không chuyển dữ liệu.

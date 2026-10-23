@@ -14,7 +14,7 @@ it("enables TLS and removes unsupported pooler startup options", async () => {
       "?pgbouncer=true&connection_limit=1&pool_timeout=10&schema=public&statement_timeout=123",
     SUPABASE_URL: "https://example.supabase.co",
   });
-  expect(config.options.ssl).toBe("require");
+  expect(config.options).toHaveProperty("ssl", "require");
   expect(config.url).not.toMatch(
     /pgbouncer|connection_limit|pool_timeout|schema|statement_timeout/,
   );

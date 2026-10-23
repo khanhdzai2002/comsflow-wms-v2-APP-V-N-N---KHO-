@@ -6,7 +6,7 @@
 | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | TypeScript                | `npm run typecheck` đạt                                                                                                       |
 | ESLint                    | `npm run lint` đạt, không warning                                                                                             |
-| Backend và parser         | **261/261**, 18 test files, đạt                                                                                               |
+| Backend và parser         | **265/265**, 19 test files, đạt                                                                                               |
 | Giao diện desktop/mobile  | **6/6** đạt                                                                                                                   |
 | Vite production build     | đạt                                                                                                                           |
 | Node worker bundle        | đạt                                                                                                                           |
@@ -64,3 +64,9 @@ Kiểm chứng sau thay đổi: 257/257 test (18 files), typecheck, lint, Vite b
 Tái hiện bằng driver postgres/cf thực và RuntimeSocket fixture: raw.closed resolve trước khi ErrorResponse đã buffer được đọc làm lỗi28P01 bị thay bằng CONNECTION_CLOSED. Adapter nay đợi readable EOF khi socket đóng bình thường; raw.closed reject vẫn ngắt nhanh. Hai test28P01/XX000 giữ nguyên SQLSTATE, thêm test byte cuối và metadata chỉ có stage/counters. Không coi race này là bằng chứng mật khẩu production sai.
 
 261/261 test (18 files), typecheck, lint, frontend/worker build và Wrangler dry-run đạt. FullWorker health local trả connected/header .6. Actualworkerd qua TLSproxytrustedCA vẫn đọc transaction có tham số, giữ mã000123456789 và quantity42, một TCP mỗi request. HostedSupabase vẫn cần chủ dự án gọihealthbản .6 để xác minh.
+
+## Chuẩn bị Hyperdrive managed connection
+
+Cả Session và Transaction pooler hosted do chủ dự án kiểm tra đều đóng sau startup113byte, không nhận bytePostgreSQL; chưa có nguyên nhân provider được xác nhận. Thêm cấu hình Hyperdrive ưu tiên binding, không tự fallback khi binding tồn tại nhưng lỗi/trống, TLS origin doHyperdrive quản lý và bỏ startup statement_timeout/ORMparams. Chưa thêm ID giả hoặc tạo resourceCloudflare. Querycaching phải tắt tạiresource để bảo đảm đọc mới nghiệp vụ.
+
+265/265 test (19 files), typecheck, lint, Vite build, worker build và Wrangler dry-run đạt. SimulatedHyperdrivebinding tới local *_test được ưu tiên trước URI fallback cố ý sai; transaction tham số giữ mã000123456789 vàquantity42. Đây là mô phỏng lựa chọnbinding/transaction, chưa xác nhận hostedHyperdrive. Cần chủ tài khoản tạoresource, Testconnection và cung cấp ID khôngbí mật để khai báo binding trongGit.
