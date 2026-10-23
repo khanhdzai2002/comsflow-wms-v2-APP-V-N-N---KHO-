@@ -74,3 +74,7 @@ Cả Session và Transaction pooler hosted do chủ dự án kiểm tra đều �
 ## Đính chính cấu hình Hyperdrive origin theo tài liệu chính thức
 
 Đã đọc source chính thức Cloudflare và Supabase qua readonlygitcheckouts. CloudflareSupabaseHyperdriveguide yêu cầu Direct connection, không qua pooledconnection. docs/HYPERDRIVE.md sửa originthành db.lyeyjfvxmqruszgfrjze.supabase.co:5432, userpostgres. Đây là sửa hướng dẫn, không deploy/đổi resource/mật khẩu/data hosted. Chưa có IDHyperdrive hoặc Testconnection thànhcông từchủproject.
+
+## Kiểm tra script tài khoản chẩn đoán
+
+`scripts/sql/create-connection-check.sql` được chạy trên container PostgreSQL17 riêng, không chạm cluster dev hay hosted. Xác nhận: thiếu marker bị chặn và không tạo role; sau marker đúng, password32ký tựhex được sinh trên server; tài khoản mới đăng nhập được, CONNECT=true, không SELECT được bảng app; chạy lại bị chặn và verifierpassword không đổi. Kết quả password không in vào tooloutput/Git. Container kiểm thử được dừng/xóa. Đây không phải xác nhận credential/đường mạng Supabase thật; SQL cần chủproject chạy riêng. Không thay đổi runtime hoặc các migration gốc.

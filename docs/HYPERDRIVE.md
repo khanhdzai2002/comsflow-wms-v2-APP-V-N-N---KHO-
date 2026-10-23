@@ -40,3 +40,9 @@ Ví dụ trên là cấu trúc minh họa, không deploy placeholder. `keep_vars
 ## Đính chính đường kết nối origin
 
 Hướng dẫn ban đầu đã dùng Session pooler; tài liệu Cloudflare chính thức yêu cầu Direct connection cho Hyperdrive. Đổi host/user theo bảng ở trên, giữ cổng5432 và mật khẩu database gốc. Không mặc định lỗi Invalid credentials chứng minh mật khẩu sai: cần Testconnection trên đườngdirect hoặc log provider để xác định. Sharedpooler Supabase có cơ chế cachecredential/circuitbreaker sau passwordrotation; việc đó chưa được xác nhận là nguyên nhân của project này.
+
+## Phép thử bằng tài khoản LOGIN/CONNECT mới
+
+Nếu Hyperdrive vẫn báo Invalid database credentials sau khi xác nhận đúng Direct host/user, dùng `scripts/sql/create-connection-check.sql` trong SQL Editor của đúng project. Script kiểm tra marker ComsFlow, tạo role `comsflow_connection_check` với mật khẩu ngẫu nhiên dạng hex và chỉ cấp CONNECT; không đổi password postgres, không sửa dữ liệu, không tự reset role nếu đã tồn tại. Kết quả chứa secret: chỉ sao chép riêng vào Hyperdrive, không gửi qua chat/Git.
+
+Thử Direct host `db.lyeyjfvxmqruszgfrjze.supabase.co`, port5432, databasepostgres, username `comsflow_connection_check`, password từ kết quả SQL. Giữ query caching tắt. Role này chỉ dùng xác minh đường đăng nhập, chưa dùng cho API đọc/ghi. Nếu Testconnection thành công cần cấp quyền ứng dụng được rà soát trước khi bind; nếu vẫn lỗi, kiểm tra log/network của provider thay vì tiếp tục đổi mật khẩu.
