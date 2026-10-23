@@ -46,3 +46,7 @@ Bổ sung nhận dạng Supavisor `XX000` lỗi xác thực và lỗi vòng đ�
 ## Giữ biến runtime và log riêng đã che credential
 
 Xác nhận từ schema/mã nguồn Wrangler rằng keep_vars mặc định false sẽ thay/xóa dashboard Variables; bật true để giữ binding qua deploy. Secret vẫn cần lưu dưới kiểu Secret, không thể khôi phục từ mã nguồn nếu đã mất. Thêm nhận dạng thông báo network gốc của cloudflare:sockets và log riêng giới hạn độ dài, che URI/key/mật khẩu thô và percent-encode, bearer/JWT, giá trị có dấu nháy; không log stack/query hoặc đưa runtimeDetails vào health response. 244/244 test (16 files), typecheck, lint, frontend/worker build và Wrangler dry-run đạt. Chưa có xác nhận hosted SQL kết nối thành công; cần chủ dự án thêm lại service-role Secret và lấy log health thực nếu lỗi còn tiếp diễn.
+
+## Tạm tăng lưu log và dấu phiên bản health
+
+Tạm bật logs/persist/invocation_logs rõ ràng và sampling 1 cho chẩn đoán; điều này hỗ trợ log đã lưu, không chứng minh Live Tail sẽ hoạt động. Health có diagnosticVersion/header và phase để kiểm chứng đúng phiên bản và giai đoạn lỗi, không trả runtimeDetails ra public. Toàn bộ 244 test, typecheck, lint, Vite build, worker build và Wrangler dry-run đạt. Chưa có nguyên nhân SQL hosted được xác nhận.

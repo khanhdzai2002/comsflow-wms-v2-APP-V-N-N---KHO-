@@ -49,3 +49,9 @@ Runtime tự bật TLS cho hostname Supabase nếu URI chưa chỉ định TLS; 
 `wrangler.jsonc` bật `keep_vars: true` để các Variable do chủ dự án thêm trên dashboard không bị xóa khi Git-triggered deployment chạy. Các public var khai báo trong repository vẫn được cập nhật từ cấu hình. Hai thông tin nhạy cảm `DATABASE_URL` và `SUPABASE_SERVICE_ROLE_KEY` phải dùng kiểu **Secret**, không đổi sang Variable chỉ để giữ cấu hình. Bản sửa không thể tự khôi phục giá trị đã mất; chủ dự án cần thêm lại key bị thiếu bằng dashboard.
 
 Nếu health vẫn báo lỗi chưa nhận dạng, mở Worker → Observability → Logs, theo dõi trực tiếp rồi gọi lại `/api/health`. Tra theo `requestId`; xem trường `runtimeDetails` của log **Database health failed**. Log chỉ lấy error message đã giới hạn độ dài/che credential, không log stack hoặc truy vấn. Không đăng công khai log chưa kiểm tra; không gửi DATABASE_URL/key/mật khẩu.
+
+## Live không nhận sự kiện
+
+Trong lúc chẩn đoán, cấu hình tạm bật logs/persist/invocation_logs và head_sampling_rate=1. Sau khi xử lý xong lỗi, đánh giá lưu lượng rồi giảm sampling nếu phù hợp. Cấu hình này nhằm giúp truy vấn log đã lưu; không khẳng định sửa được kết nối Live Tail, vốn là kênh riêng. Nếu Live trống, thoát Live và xem Events/Logs trong 15 phút gần nhất sau khi gọi `/api/health`.
+
+Health của bản chẩn đoán này có `diagnosticVersion: "2026-10-23.4"` khi lỗi, và header `X-ComsFlow-Diagnostic-Version` ở mọi kết quả. Dùng version này để xác nhận đúng code đang nhận yêu cầu. Trường diagnostics.phase chỉ ra lỗi lúc kiểm tra URI (`configuration`), tạo client (`client`) hay truy vấn (`query`). Không gửi secret hoặc thay mật khẩu chỉ vì thiếu log.

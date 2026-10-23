@@ -20,6 +20,8 @@ it("explains missing runtime secrets without attempting a query", async () => {
   expect(response.status).toBe(503);
   expect(await response.json()).toMatchObject({
     code: "DB_URL_MISSING",
+    diagnosticVersion: "2026-10-23.4",
+    diagnostics: { phase: "configuration" },
     configuration: { databaseUrlPresent: false, serviceRolePresent: false },
   });
   expect(mock.query).not.toHaveBeenCalled();
@@ -30,6 +32,7 @@ it("returns safe diagnostics and correlation id for authentication failure", asy
   const body = await response.json();
   expect(response.status).toBe(503);
   expect(body.code).toBe("DB_AUTH_FAILED");
+  expect(body.diagnostics.phase).toBe("query");
   expect(response.headers.get("X-Request-Id")).toBe(body.requestId);
   expect(JSON.stringify(body) + JSON.stringify(log.mock.calls)).not.toContain(
     "dummy-secret",
@@ -46,6 +49,9 @@ it("preserves the successful health response", async () => {
   mock.query.mockResolvedValue([{ applied: 3 }]);
   const response = await health(env);
   expect(response.status).toBe(200);
+  expect(response.headers.get("X-ComsFlow-Diagnostic-Version")).toBe(
+    "2026-10-23.4",
+  );
   expect(await response.json()).toEqual({ ok: true, database: "connected" });
 });
 it("keeps redacted runtime details in private logs rather than public health", async () => {

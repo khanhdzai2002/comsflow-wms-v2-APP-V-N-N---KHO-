@@ -8,37 +8,48 @@ import {
 import { environment } from "./context";
 import { databaseErrorLog } from "./database-error-log";
 import { AppResponse } from "./http";
+const diagnosticVersion = "2026-10-23.4";
+const healthHeaders = {
+  "Cache-Control": "no-store",
+  "X-ComsFlow-Diagnostic-Version": diagnosticVersion,
+};
 export async function databaseHealth() {
   const env = environment();
+  let phase = "configuration";
   try {
     databaseConnection(env);
+    phase = "client";
+    const sql = db();
+    phase = "query";
     const [row] =
-      await db()`SELECT count(*)::int applied FROM public.schema_migrations WHERE name IN ('015_supabase_platform.sql','016_background_jobs.sql','017_job_storage_cleanup.sql')`;
+      await sql`SELECT count(*)::int applied FROM public.schema_migrations WHERE name IN ('015_supabase_platform.sql','016_background_jobs.sql','017_job_storage_cleanup.sql')`;
     if (row.applied !== 3)
       return AppResponse.json(
         {
           ok: false,
           database: "unavailable",
           code: "DB_SCHEMA_INCOMPLETE",
+          diagnosticVersion,
           error: "Database chưa có đủ cấu trúc ComsFlow v2.",
           hint: "Kiểm tra DATABASE_URL trỏ đúng project đã chạy 17 migration. Không xóa bảng hoặc chạy seed.",
         },
         {
           status: 503,
-          headers: { "Cache-Control": "no-store", "Retry-After": "5" },
+          headers: { ...healthHeaders, "Retry-After": "5" },
         },
       );
     return AppResponse.json(
       { ok: true, database: "connected" },
-      { headers: { "Cache-Control": "no-store" } },
+      { headers: healthHeaders },
     );
   } catch (error) {
     const failure = databaseFailure(error),
       requestId = randomUUID();
-    const diagnostics = databaseErrorMetadata(error);
+    const diagnostics = { ...databaseErrorMetadata(error), phase };
     console.error("Database health failed", {
       code: failure.code,
       requestId,
+      diagnosticVersion,
       ...diagnostics,
       runtimeDetails: databaseErrorLog(error, env),
     });
@@ -48,6 +59,7 @@ export async function databaseHealth() {
         database: "unavailable",
         ...failure,
         requestId,
+        diagnosticVersion,
         diagnostics,
         configuration: {
           databaseUrlPresent: !!(
@@ -59,7 +71,7 @@ export async function databaseHealth() {
       {
         status: 503,
         headers: {
-          "Cache-Control": "no-store",
+          ...healthHeaders,
           "Retry-After": "5",
           "X-Request-Id": requestId,
         },
