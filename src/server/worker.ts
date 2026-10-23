@@ -163,6 +163,7 @@ export default {
     }
     const req = new AppRequest(request);
     const state: RequestState = {
+      cloudflare: true,
       env,
       cookies: [],
       pending: [],

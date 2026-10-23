@@ -119,6 +119,9 @@ export function databaseConnection(
     );
   return {
     url: url!.toString(),
+    secure:
+      supabase ||
+      Boolean(sslMode && !["disable", "false", "0"].includes(sslMode)),
     options: {
       ...(supabase && !sslMode ? { ssl: "require" as const } : {}),
       prepare: false,
@@ -149,6 +152,16 @@ export function databaseFailure(error: unknown): DatabaseFailure {
     error: "Chưa kết nối được database.",
     hint,
   });
+  if (code === "DB_CONNECTION_RETRY_LIMIT")
+    return result(
+      "DB_CONNECTION_RETRY_LIMIT",
+      "Kết nối bị đóng trước khi khởi tạo xong. App đã dừng thử lại để tránh vượt giới hạn Cloudflare. Kiểm tra log runtimeDetails của lần gọi này.",
+    );
+  if (/too many subrequests/i.test(message))
+    return result(
+      "DB_SUBREQUEST_LIMIT",
+      "Cloudflare đã chặn vì có quá nhiều kết nối/yêu cầu trong một lần gọi. Cập nhật bản sửa adapter và giới hạn thử lại; chưa kết luận cần nâng gói.",
+    );
   if (/unsupported (?:startup )?parameter/i.test(message))
     return result(
       "DB_POOLER_PARAMETER_UNSUPPORTED",
@@ -218,6 +231,7 @@ export function databaseFailure(error: unknown): DatabaseFailure {
     );
   if (
     [
+      "DB_TLS_FAILED",
       "SELF_SIGNED_CERT_IN_CHAIN",
       "DEPTH_ZERO_SELF_SIGNED_CERT",
       "CERT_HAS_EXPIRED",

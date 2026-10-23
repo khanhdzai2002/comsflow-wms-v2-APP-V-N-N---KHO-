@@ -8,7 +8,7 @@ import {
 import { environment } from "./context";
 import { databaseErrorLog } from "./database-error-log";
 import { AppResponse } from "./http";
-const diagnosticVersion = "2026-10-23.4";
+const diagnosticVersion = "2026-10-23.5";
 const healthHeaders = {
   "Cache-Control": "no-store",
   "X-ComsFlow-Diagnostic-Version": diagnosticVersion,

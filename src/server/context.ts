@@ -14,6 +14,7 @@ export type AppEnv = {
   HYPERDRIVE?: { connectionString: string };
 };
 export type RequestState = {
+  cloudflare?: boolean;
   exportSink?: (
     rows: Record<string, any>[],
     format: string,

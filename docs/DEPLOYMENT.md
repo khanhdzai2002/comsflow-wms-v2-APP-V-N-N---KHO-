@@ -71,3 +71,9 @@ Health cũng nhận dạng lỗi xác thực Supavisor dùng SQLSTATE `XX000`. K
 `wrangler.jsonc` bật `keep_vars: true` để các Variable do chủ dự án thêm trên dashboard không bị xóa khi Git-triggered deployment chạy. Các public var khai báo trong repository vẫn được cập nhật từ cấu hình. Hai thông tin nhạy cảm `DATABASE_URL` và `SUPABASE_SERVICE_ROLE_KEY` phải dùng kiểu **Secret**, không đổi sang Variable chỉ để giữ cấu hình. Bản sửa không thể tự khôi phục giá trị đã mất; chủ dự án cần thêm lại key bị thiếu bằng dashboard.
 
 Nếu health vẫn báo lỗi chưa nhận dạng, mở Worker → Observability → Logs, theo dõi trực tiếp rồi gọi lại `/api/health`. Tra theo `requestId`; xem trường `runtimeDetails` của log **Database health failed**. Log chỉ lấy error message đã giới hạn độ dài/che credential, không log stack hoặc truy vấn. Không đăng công khai log chưa kiểm tra; không gửi DATABASE_URL/key/mật khẩu.
+
+## Chặn vòng lặp kết nối làm vượt subrequest
+
+Bản chẩn đoán `.5` thay đường socket của API Cloudflare bằng adapter dùng `cloudflare:sockets` qua hook socket của postgres.js. Adapter hoàn tất PostgreSQL STARTTLS trước khi trao stream cho driver; đóng socket plaintext cũ khi nâng TLS không bị hiểu nhầm thành đóng kết nối TLS hiện tại. `ssl:false` ở phía driver chỉ ngăn nâng TLS lần thứ hai: Supabase vẫn bắt buộc TLS, hostname được xác thực bởi runtime Cloudflare, không bỏ kiểm tra certificate.
+
+Mỗi request dùng một connection pool max = 1, tối đa 2 lần tạo transport và deadline 10 giây cho connect/TLS. Đóng lỗi trong startup được trả về ngay thay vì vòng reconnect không giới hạn. Lỗi `Too many subrequests` được phân loại `DB_SUBREQUEST_LIMIT`; không tăng quota để che vòng lặp. Worker Node đọc file giữ driver Node riêng. Không cần thay mật khẩu chỉ vì lỗi quota này.

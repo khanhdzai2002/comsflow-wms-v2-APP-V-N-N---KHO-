@@ -55,3 +55,9 @@ Nếu health vẫn báo lỗi chưa nhận dạng, mở Worker → Observability
 Trong lúc chẩn đoán, cấu hình tạm bật logs/persist/invocation_logs và head_sampling_rate=1. Sau khi xử lý xong lỗi, đánh giá lưu lượng rồi giảm sampling nếu phù hợp. Cấu hình này nhằm giúp truy vấn log đã lưu; không khẳng định sửa được kết nối Live Tail, vốn là kênh riêng. Nếu Live trống, thoát Live và xem Events/Logs trong 15 phút gần nhất sau khi gọi `/api/health`.
 
 Health của bản chẩn đoán này có `diagnosticVersion: "2026-10-23.4"` khi lỗi, và header `X-ComsFlow-Diagnostic-Version` ở mọi kết quả. Dùng version này để xác nhận đúng code đang nhận yêu cầu. Trường diagnostics.phase chỉ ra lỗi lúc kiểm tra URI (`configuration`), tạo client (`client`) hay truy vấn (`query`). Không gửi secret hoặc thay mật khẩu chỉ vì thiếu log.
+
+## Chặn vòng lặp kết nối làm vượt subrequest
+
+Bản chẩn đoán `.5` thay đường socket của API Cloudflare bằng adapter dùng `cloudflare:sockets` qua hook socket của postgres.js. Adapter hoàn tất PostgreSQL STARTTLS trước khi trao stream cho driver; đóng socket plaintext cũ khi nâng TLS không bị hiểu nhầm thành đóng kết nối TLS hiện tại. `ssl:false` ở phía driver chỉ ngăn nâng TLS lần thứ hai: Supabase vẫn bắt buộc TLS, hostname được xác thực bởi runtime Cloudflare, không bỏ kiểm tra certificate.
+
+Mỗi request dùng một connection pool max = 1, tối đa 2 lần tạo transport và deadline 10 giây cho connect/TLS. Đóng lỗi trong startup được trả về ngay thay vì vòng reconnect không giới hạn. Lỗi `Too many subrequests` được phân loại `DB_SUBREQUEST_LIMIT`; không tăng quota để che vòng lặp. Worker Node đọc file giữ driver Node riêng. Không cần thay mật khẩu chỉ vì lỗi quota này.

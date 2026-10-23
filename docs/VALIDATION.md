@@ -6,7 +6,7 @@
 | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | TypeScript                | `npm run typecheck` đạt                                                                                                       |
 | ESLint                    | `npm run lint` đạt, không warning                                                                                             |
-| Backend và parser         | **244/244**, 16 test files, đạt                                                                                               |
+| Backend và parser         | **257/257**, 18 test files, đạt                                                                                               |
 | Giao diện desktop/mobile  | **6/6** đạt                                                                                                                   |
 | Vite production build     | đạt                                                                                                                           |
 | Node worker bundle        | đạt                                                                                                                           |
@@ -50,3 +50,11 @@ Xác nhận từ schema/mã nguồn Wrangler rằng keep_vars mặc định fals
 ## Tạm tăng lưu log và dấu phiên bản health
 
 Tạm bật logs/persist/invocation_logs rõ ràng và sampling 1 cho chẩn đoán; điều này hỗ trợ log đã lưu, không chứng minh Live Tail sẽ hoạt động. Health có diagnosticVersion/header và phase để kiểm chứng đúng phiên bản và giai đoạn lỗi, không trả runtimeDetails ra public. Toàn bộ 244 test, typecheck, lint, Vite build, worker build và Wrangler dry-run đạt. Chưa có nguyên nhân SQL hosted được xác nhận.
+
+## Sửa vòng lặp socket/TLS gây vượt subrequest
+
+Log hosted do chủ dự án cung cấp xác nhận lỗi `Too many subrequests by single Worker invocation`. Tái hiện với driver upstream và socket đóng lúc startup: 55 lần tạo transport trong 127 ms, do nhánh initial reconnect bỏ qua backoff và reset connect timeout. Tái hiện riêng TLS handoff: socket plaintext bị đóng trước khi writer TLS ready làm polyfill phát close sớm. Các bài tái hiện dùng fixture, không dùng credential hosted.
+
+Adapter mới dùng hook socket chính thức của driver và cloudflare:sockets trực tiếp, hoàn tất TLS trước khi trao stream, chỉ theo dõi socket hiện tại, tối đa 2 transport/request và deadline connect/TLS 10 giây. Supabase vẫn dùng TLS có xác thực chứng chỉ; không tăng quota hay tắt xác thực. Node request có budget riêng; background Node không đổi driver.
+
+Kiểm chứng sau thay đổi: 257/257 test (18 files), typecheck, lint, Vite build, worker build và Wrangler dry-run đạt. /api/health của Worker đầy đủ trong Wrangler local trả 200 connected, header diagnostic version .5. Actual Miniflare/workerd qua PostgreSQL local và STARTTLS proxy: SELECT1 và transaction có tham số (mã giữ số 0 đầu, số lượng 42) đều trả 200, mỗi request TLS chỉ 1 TCP connection. Trusted local CA hoạt động; bỏ CA bị chặn UnknownIssuer với 1 TCP, xác thực không bị vô hiệu hóa. Các kết quả local không thay thế kiểm tra health/login trên Supabase hosted sau deployment.

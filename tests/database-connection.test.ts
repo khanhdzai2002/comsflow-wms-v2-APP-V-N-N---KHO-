@@ -129,3 +129,31 @@ it.each([
 ])("recognizes raw Cloudflare socket failure: %s", (message) => {
   expect(databaseFailure(new Error(message)).code).toBe("DB_NETWORK_FAILED");
 });
+
+it("identifies the subrequest quota without treating it as a password failure", () => {
+  expect(
+    databaseFailure(
+      new Error("Too many subrequests by single Worker invocation"),
+    ).code,
+  ).toBe("DB_SUBREQUEST_LIMIT");
+  expect(databaseFailure({ code: "DB_CONNECTION_RETRY_LIMIT" }).code).toBe(
+    "DB_CONNECTION_RETRY_LIMIT",
+  );
+});
+
+it("keeps transport TLS required when the socket owns the handshake", () => {
+  expect(databaseConnection({ DATABASE_URL: pooler }).secure).toBe(true);
+  expect(
+    databaseConnection({ DATABASE_URL: pooler + "?sslmode=verify-full" })
+      .secure,
+  ).toBe(true);
+  expect(
+    databaseConnection({
+      DATABASE_URL: "postgres://test:dummy@localhost/test?sslmode=require",
+    }).secure,
+  ).toBe(true);
+  expect(
+    databaseConnection({ DATABASE_URL: "postgres://test:dummy@localhost/test" })
+      .secure,
+  ).toBe(false);
+});
