@@ -1,3 +1,4 @@
+import { populateCatalogs } from "../src/lib/catalog-setup";
 import { readFile, readdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { db } from "../src/lib/db";
@@ -23,18 +24,7 @@ try {
       console.log(`Applied ${name}`);
     }
     if (process.env.MIGRATION_SKIP_DEFAULTS === "1") return;
-    for (const name of ["Shopee", "TikTok Shop"])
-      await tx`INSERT INTO sales_channels(name) VALUES(${name}) ON CONFLICT DO NOTHING`;
-    for (const name of [
-      "SPX Express",
-      "J&T Express",
-      "BEST Express",
-      "GHN",
-      "Viettel Post",
-    ])
-      await tx`INSERT INTO shipping_carriers(name) VALUES(${name}) ON CONFLICT DO NOTHING`;
-    await tx`INSERT INTO warehouses(name) VALUES('Kho ComsMiu') ON CONFLICT DO NOTHING`;
-    await tx`INSERT INTO system_settings(key,value) VALUES('cutoff_hour','17') ON CONFLICT DO NOTHING`;
+    await populateCatalogs(tx);
   });
   console.log("Database migrations OK");
 } finally {

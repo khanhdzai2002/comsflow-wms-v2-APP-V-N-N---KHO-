@@ -1,10 +1,15 @@
 import { z } from "zod";
 import { db, audit, type User } from "./db";
-import { AppError, managerRoles, requireRole } from "./domain";
+import {
+  AppError,
+  managerRoles,
+  requireRole,
+  warehouseIdSchema,
+} from "./domain";
 
 export async function startOwnShift(user: User, warehouseId: string) {
   requireRole(user, managerRoles);
-  z.uuid().parse(warehouseId);
+  warehouseIdSchema.parse(warehouseId);
   return db().begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${"shift:" + user.id + ":" + warehouseId},0))`;
     const [warehouse] =

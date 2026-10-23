@@ -54,3 +54,5 @@ Xem [docs/MIGRATION.md](docs/MIGRATION.md); không chạy `--apply` khi chưa c�
 File đầu vào và báo cáo tạm giữ 7 ngày; metadata tác vụ hết hạn được dọn sau 30 ngày. Dữ liệu đơn/scan không tự bị xóa theo hạn này. Phần dọn dữ liệu vận hành cũ vẫn có xem trước, xuất danh sách và xác nhận của quản trị viên.
 
 Không có hệ thống nào bảo đảm tuyệt đối không lỗi. Cần backup PostgreSQL và Storage riêng, kiểm thử khôi phục, theo dõi worker/queue, cảnh báo tài nguyên và kiểm thử tải theo quy mô shop. [Kiến trúc](docs/ARCHITECTURE.md) · [Kiểm chứng](docs/VALIDATION.md) · [Đơn hoàn](docs/RETURN_MANAGEMENT.md).
+
+Rà soát mở ca, danh mục và tổng quan đơn hoàn: [docs/OPERATIONS_REVIEW.md](docs/OPERATIONS_REVIEW.md).

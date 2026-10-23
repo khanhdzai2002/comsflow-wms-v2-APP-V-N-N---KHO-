@@ -1,4 +1,5 @@
 "use client";
+import { ReturnOverview } from "./return-overview";
 import { ReturnAnalysis, ReturnImportUpdates } from "./return-analysis";
 import { ReturnDetailInfo, QuickCopy } from "./return-detail-info";
 import { ReturnStatus, warehouseState } from "./return-status";
@@ -16,16 +17,6 @@ import {
   ArrowRight,
   LoaderCircle,
 } from "lucide-react";
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  Legend,
-  CartesianGrid,
-} from "recharts";
 import type { User } from "@/lib/db";
 import { todayVN, formatTime } from "@/lib/domain";
 import {
@@ -47,6 +38,7 @@ import {
   Loading,
   Modal,
   OptionList,
+  useCatalogSelection,
   type Row,
 } from "./shared";
 import { CameraScanner } from "./scanner";
@@ -114,8 +106,9 @@ export function ReturnsModule({
     channel: "",
     warehouse: "",
     shop: "",
-    state: tab === "claims" ? "claims" : "",
+    state: tab === "claims" ? "claims_or_lost" : "",
     carrier: "",
+    carrierScope: "any",
     sort: "date",
     reason: "",
     q: "",
@@ -124,19 +117,53 @@ export function ReturnsModule({
   const query = new URLSearchParams(
     Object.fromEntries(Object.entries(filters).filter(([, v]) => v !== "")),
   ).toString();
-  const { data, error, loading } = useData<Row>("returns?" + query, 5000);
+  const listVisible = ["dashboard", "list", "claims", "history"].includes(tab);
+  const { data, error, loading, reload } = useData<Row>(
+    listVisible
+      ? "returns?" + query
+      : tab === "scan"
+        ? "returns/events/mine"
+        : null,
+    5000,
+  );
   const [selected, setSelected] = useState("");
   const change = (key: string, value: string) =>
     setFilters((f) => ({
       ...f,
-      [key]: value,
+      [key]:
+        key === "state" && tab === "claims" && !value
+          ? "claims_or_lost"
+          : value,
       page: key === "page" ? value : "1",
+      ...(key === "carrier" ? { carrierScope: "any" } : {}),
     }));
   const tabs = visibleReturnTabs(user.role);
   const currentTab = tabs.find((item) => item.key === tab) ?? tabs[0];
-  const [days, setDays] = useState("5");
+  const [advancedFilters, setAdvancedFilters] = useState(false);
+  const navigateTab = (key: ReturnTab) => {
+    setTab(key);
+    if (key === "claims" || key === "dashboard")
+      setFilters((f) => ({
+        ...f,
+        state: key === "claims" ? "claims_or_lost" : "",
+        page: "1",
+      }));
+  };
+  const openOverviewList = (state: string, carrier?: string) => {
+    setFilters((f) => ({
+      ...f,
+      state,
+      ...(carrier === undefined ? {} : { carrier, carrierScope: "exclusive" }),
+      page: "1",
+    }));
+    setTab("list");
+  };
   return (
-    <div className="return-module">
+    <div
+      className={
+        "return-module" + (tab === "dashboard" ? " return-overview-view" : "")
+      }
+    >
       <div className="return-navigation">
         <div className="return-navigation-label">
           CÁC MỤC TRONG QUẢN LÝ ĐƠN HOÀN
@@ -170,12 +197,10 @@ export function ReturnsModule({
                   else return;
                   event.preventDefault();
                   keyboardTab.current = tabs[next].key;
-                  setTab(tabs[next].key);
-                  if (tabs[next].key === "claims") change("state", "claims");
+                  navigateTab(tabs[next].key);
                 }}
                 onClick={() => {
-                  setTab(key);
-                  if (key === "claims") change("state", "claims");
+                  navigateTab(key);
                 }}
               >
                 <span className="return-tab-icon">
@@ -203,7 +228,7 @@ export function ReturnsModule({
           <CheckCircle2 size={15} /> Đang mở
         </span>
       </div>
-      {tab !== "import" && (
+      {tab !== "import" && tab !== "dashboard" && (
         <div className="notice return-flow-note">
           <Info size={18} aria-hidden="true" />
           <p>
@@ -218,6 +243,7 @@ export function ReturnsModule({
         role="tabpanel"
         aria-labelledby={`returns-tab-${tab}`}
       >
+        <ErrorBox message={error} />
         {tab === "import" ? (
           <ReturnImporter refs={refs} onOpenList={() => setTab("list")} />
         ) : tab === "analytics" ? (
@@ -240,6 +266,7 @@ export function ReturnsModule({
                       : "",
                 q: "",
                 carrier: "",
+                carrierScope: "any",
                 warehouse: "",
                 dateType: "requested",
                 page: "1",
@@ -258,9 +285,12 @@ export function ReturnsModule({
           />
         ) : (
           <>
-            <section className="card padded">
-              <div className="form-grid">
-                <label className="field">
+            <section
+              className="card padded return-filter-panel"
+              data-expanded={advancedFilters}
+            >
+              <div className="form-grid return-filter-grid">
+                <label className="field return-filter-advanced">
                   Tìm mã yêu cầu / đơn gốc / vận đơn
                   <input
                     placeholder="Dán một hoặc nhiều mã, cách nhau bằng dấu phẩy"
@@ -268,7 +298,7 @@ export function ReturnsModule({
                     onChange={(e) => change("q", e.target.value)}
                   />
                 </label>
-                <label className="field">
+                <label className="field return-filter-advanced">
                   Loại ngày
                   <select
                     value={filters.dateType}
@@ -316,7 +346,7 @@ export function ReturnsModule({
                     <OptionList rows={refs.warehouses} />
                   </select>
                 </label>
-                <label className="field">
+                <label className="field return-filter-advanced">
                   Shop đơn hoàn
                   <input
                     value={filters.shop}
@@ -332,10 +362,11 @@ export function ReturnsModule({
                   >
                     <option value="">Tất cả hãng</option>
                     <option value="unknown">Chưa xác định</option>
+                    <option value="mixed">Nhiều hãng / cần đối chiếu</option>
                     <OptionList rows={refs.carriers} />
                   </select>
                 </label>
-                <label className="field">
+                <label className="field return-filter-advanced">
                   Lý do hoàn chuẩn
                   <select
                     value={filters.reason}
@@ -349,7 +380,7 @@ export function ReturnsModule({
                     ))}
                   </select>
                 </label>
-                <label className="field">
+                <label className="field return-filter-advanced">
                   Sắp xếp danh sách
                   <select
                     value={filters.sort}
@@ -359,7 +390,7 @@ export function ReturnsModule({
                     <option value="carrier">Hãng trả hàng</option>
                   </select>
                 </label>
-                <label className="field">
+                <label className="field return-filter-advanced">
                   Lọc đối soát hoàn
                   <select
                     value={filters.state}
@@ -377,6 +408,16 @@ export function ReturnsModule({
                     <option value="stale">Nguồn đổi · cần kiểm lại</option>
                     <option value="overdue">Quá mốc theo dõi</option>
                     <option value="claims">Có hồ sơ khiếu nại</option>
+                    <option value="claims_or_lost">
+                      Khiếu nại / nghi mất / mất
+                    </option>
+                    <option value="claim_success">Khiếu nại thành công</option>
+                    <option value="open_claims">Đang khiếu nại</option>
+                    <option value="waiting_inspection">Chờ kiểm hàng</option>
+                    <option value="partial_receipt">Nhận một phần</option>
+                    <option value="excluded">
+                      Đơn hủy / không cần trả hàng
+                    </option>
                     {Object.entries(returnInspection)
                       .filter(([k]) => k !== "pending")
                       .map(([k, l]) => (
@@ -395,6 +436,54 @@ export function ReturnsModule({
                 </label>
               </div>
               <div className="inline wrap">
+                <button
+                  className="secondary small"
+                  aria-expanded={advancedFilters}
+                  onClick={() => setAdvancedFilters((v) => !v)}
+                >
+                  {advancedFilters ? "Thu gọn bộ lọc" : "Bộ lọc +"}
+                </button>
+                {(filters.state || filters.carrierScope === "exclusive") && (
+                  <span className="return-active-scope">
+                    Đang lọc:{" "}
+                    {returnProcessing[filters.state] ??
+                      returnInspection[filters.state] ??
+                      (
+                        {
+                          unreceived: "Chưa về kho",
+                          received: "Đã về kho",
+                          claim_success: "Khiếu nại thành công",
+                          open_claims: "Đang khiếu nại",
+                          waiting_inspection: "Chờ kiểm hàng",
+                          partial_receipt: "Nhận một phần",
+                          excluded: "Hủy / không trả hàng",
+                          overdue: "Quá mốc",
+                          claims: "Có khiếu nại",
+                          claims_or_lost: "Khiếu nại / nghi mất / mất",
+                          missing_tracking: "Chưa có vận đơn",
+                          stale: "Cần kiểm lại",
+                        } as Row
+                      )[filters.state] ??
+                      "Theo nhóm hãng"}
+                    {filters.carrierScope === "exclusive"
+                      ? " · Nhóm hãng duy nhất"
+                      : ""}{" "}
+                    <button
+                      className="text-button"
+                      onClick={() =>
+                        setFilters((f) => ({
+                          ...f,
+                          state: tab === "claims" ? "claims_or_lost" : "",
+                          carrier: "",
+                          carrierScope: "any",
+                          page: "1",
+                        }))
+                      }
+                    >
+                      Bỏ lọc trạng thái / hãng
+                    </button>
+                  </span>
+                )}
                 <button
                   className="secondary small"
                   onClick={() => {
@@ -428,7 +517,7 @@ export function ReturnsModule({
                       ...f,
                       from: "",
                       to: "",
-                      state: "",
+                      state: tab === "claims" ? "claims_or_lost" : "",
                       q: "",
                       page: "1",
                     }))
@@ -454,187 +543,43 @@ export function ReturnsModule({
                 )}
               </div>
             </section>
-            <ErrorBox message={error} />
             {loading && !data ? (
               <Loading />
             ) : (
               data && (
                 <>
-                  <section
-                    className="source-counts return-kpis"
-                    aria-label="Số liệu đơn hoàn"
-                  >
-                    {[
-                      ["orders", "Đơn gốc", ""],
-                      ["requests", "Yêu cầu hoàn", ""],
-                      ["tracking_codes", "Mã vận đơn khác nhau", ""],
-                      ["parcels", "Liên kết kiện / yêu cầu", ""],
-                      ["quantity", "SP yêu cầu hoàn", ""],
-                      ["unreceived", "Yêu cầu chưa nhận", "unreceived"],
-                      ["received", "Yêu cầu đã nhận kiện", "received"],
-                      ["full", "Yêu cầu kiểm đủ", "full"],
-                      [
-                        "missing_tracking",
-                        "Chưa có vận đơn",
-                        "missing_tracking",
-                      ],
-                      ["overdue", "Quá mốc theo dõi", "overdue"],
-                      ["claims", "Có khiếu nại", "claims"],
-                      ["stale", "Cần kiểm lại", "stale"],
-                    ].map(([key, label, state]) => (
-                      <button
-                        className="card"
-                        key={key}
-                        onClick={() => {
-                          if (state) change("state", state);
-                          setTab("list");
-                        }}
-                      >
-                        <strong>{data.totals[key]}</strong>
-                        <span
-                          className={
-                            (
-                              {
-                                unreceived: "return-status neutral",
-                                received: "return-status success",
-                                full: "return-status complete",
-                                claims: "return-status attention",
-                                stale: "return-status attention",
-                              } as Row
-                            )[key]
-                          }
+                  {tab === "dashboard" ? (
+                    <ReturnOverview
+                      data={data}
+                      onNavigate={openOverviewList}
+                      onReload={reload}
+                    />
+                  ) : (
+                    <>
+                      <ReturnTable rows={data.rows} onOpen={setSelected} />
+                      <div className="inline">
+                        <button
+                          className="secondary"
+                          disabled={data.page <= 1}
+                          onClick={() => change("page", String(data.page - 1))}
                         >
-                          {label}
+                          Trang trước
+                        </button>
+                        <span>
+                          Trang {data.page}/
+                          {Math.max(1, Math.ceil(data.totals.requests / 50))} ·{" "}
+                          {data.totals.requests} yêu cầu
                         </span>
-                      </button>
-                    ))}
-                  </section>
-                  {tab === "dashboard" && (
-                    <section className="card padded">
-                      <h3>Yêu cầu theo sàn</h3>
-                      <div style={{ height: 240 }}>
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={data.channels}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="channel" />
-                            <YAxis allowDecimals={false} />
-                            <Tooltip />
-                            <Legend />
-                            <Bar
-                              dataKey="requests"
-                              name="Yêu cầu hoàn"
-                              fill="#ff6b25"
-                            />
-                            <Bar
-                              dataKey="received"
-                              name="Kiện đã nhận"
-                              fill="#16a878"
-                            />
-                          </BarChart>
-                        </ResponsiveContainer>
+                        <button
+                          className="secondary"
+                          disabled={data.page * 50 >= data.totals.requests}
+                          onClick={() => change("page", String(data.page + 1))}
+                        >
+                          Trang sau
+                        </button>
                       </div>
-                      <h3>Tiến độ theo nhóm ngày yêu cầu hoàn</h3>
-                      <p className="small-note">
-                        Tối đa 60 ngày có dữ liệu trong bộ lọc. Đã nhận là trạng
-                        thái hiện tại của các yêu cầu thuộc nhóm ngày đó, không
-                        phải số lượt nhận phát sinh trong ngày.
-                      </p>
-                      <div style={{ height: 240 }}>
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={data.trend}>
-                            <XAxis dataKey="day" />
-                            <YAxis allowDecimals={false} />
-                            <Tooltip />
-                            <Legend />
-                            <Bar
-                              dataKey="requests"
-                              name="Yêu cầu"
-                              fill="#ff6b25"
-                            />
-                            <Bar
-                              dataKey="received"
-                              name="Yêu cầu đã nhận kiện"
-                              fill="#16a878"
-                            />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                      <h3>Tiền bồi thường được ghi nhận trong hồ sơ nội bộ</h3>
-                      <div className="source-counts">
-                        <div>
-                          <strong>{money(data.totals.claim_requested)}</strong>
-                          <span>Yêu cầu bồi thường</span>
-                        </div>
-                        <div>
-                          <strong>{money(data.totals.claim_approved)}</strong>
-                          <span>Được duyệt</span>
-                        </div>
-                        <div>
-                          <strong>{money(data.totals.claim_received)}</strong>
-                          <span>Đã ghi nhận thực nhận</span>
-                        </div>
-                      </div>
-                      <p>
-                        Không cộng tiền đơn gốc giữa các yêu cầu. Refund Time và
-                        đơn giá trong file không được coi là tiền bồi thường
-                        thực nhận.
-                      </p>
-                      <label className="field">
-                        Mốc theo dõi đơn chưa về (ngày)
-                        <input
-                          type="number"
-                          min="1"
-                          max="90"
-                          value={days}
-                          onChange={(e) => setDays(e.target.value)}
-                        />
-                      </label>
-                      <button
-                        className="secondary"
-                        onClick={async () => {
-                          try {
-                            await post("returns/settings", {
-                              days: Number(days),
-                            });
-                            refresh();
-                            toast("Đã lưu mốc cảnh báo");
-                          } catch (e) {
-                            toast((e as Error).message, true);
-                          }
-                        }}
-                      >
-                        Lưu mốc theo dõi
-                      </button>
-                      <p className="small-note">
-                        Đang dùng {data.overdueDays} ngày. Ưu tiên ngày dự kiến
-                        do quản lý nhập; nếu thiếu, dùng ngày yêu cầu hoàn + mốc
-                        cấu hình. Đây là mốc theo dõi nội bộ, không phải hạn
-                        chính thức của sàn và không tự kết luận mất đơn.
-                      </p>
-                    </section>
+                    </>
                   )}
-                  <ReturnTable rows={data.rows} onOpen={setSelected} />
-                  <div className="inline">
-                    <button
-                      className="secondary"
-                      disabled={data.page <= 1}
-                      onClick={() => change("page", String(data.page - 1))}
-                    >
-                      Trang trước
-                    </button>
-                    <span>
-                      Trang {data.page}/
-                      {Math.max(1, Math.ceil(data.totals.requests / 50))} ·{" "}
-                      {data.totals.requests} yêu cầu
-                    </span>
-                    <button
-                      className="secondary"
-                      disabled={data.page * 50 >= data.totals.requests}
-                      onClick={() => change("page", String(data.page + 1))}
-                    >
-                      Trang sau
-                    </button>
-                  </div>
                   {tab === "history" && (
                     <section className="card padded">
                       <h3>20 thao tác gần nhất của bạn</h3>
@@ -796,10 +741,10 @@ function ReturnImporter({
   refs: Row;
   onOpenList: () => void;
 }) {
+  const [warehouse, setWarehouse] = useCatalogSelection(refs.warehouses);
   const [updateMode, setUpdateMode] = useState(false);
   const [file, setFile] = useState<File | null>(null),
     [shop, setShop] = useState("ComsMiu"),
-    [warehouse, setWarehouse] = useState(refs.warehouses[0]?.id ?? ""),
     [channel, setChannel] = useState(""),
     [mapping, setMapping] = useState<Record<string, string>>({
       ...returnFields,
@@ -1300,8 +1245,9 @@ function ReturnScanner({
   events: Row[];
   onOpen: (id: string) => void;
 }) {
-  const [warehouse, setWarehouse] = useState(refs.warehouses[0]?.id ?? ""),
-    [requestedShift, setShift] = useState(""),
+  const [warehouse, setWarehouse] = useCatalogSelection(refs.warehouses);
+  const [starting, setStarting] = useState(false);
+  const [requestedShift, setShift] = useState(""),
     [code, setCode] = useState(""),
     [result, setResult] = useState<Row | null>(null),
     [error, setError] = useState(""),
@@ -1416,16 +1362,20 @@ function ReturnScanner({
           {user.role !== "staff" && (
             <button
               className="secondary small"
+              disabled={starting || !warehouse}
               onClick={async () => {
                 try {
+                  setStarting(true);
                   await post("shifts/start-self", { warehouseId: warehouse });
                   refresh();
                 } catch (e) {
                   setError((e as Error).message);
+                } finally {
+                  setStarting(false);
                 }
               }}
             >
-              Mở ca nhận cho tôi
+              {starting ? "Đang mở ca…" : "Mở ca nhận cho tôi"}
             </button>
           )}
         </div>

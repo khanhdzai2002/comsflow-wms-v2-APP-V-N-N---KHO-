@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { BrandLogo } from "./brand-logo";
 import type { User } from "@/lib/db";
+import { APP_REVISION } from "@/lib/app-version";
 import { todayVN, filterStatuses } from "@/lib/domain";
 import { visibleReturnTabs, type ReturnTab } from "@/lib/return-domain";
 import {
@@ -42,6 +43,7 @@ import { Shipments, Reconciliation, Handovers } from "./operations";
 import { Imports, People, Configuration } from "./management";
 import { ReturnsModule } from "./returns";
 import { DataJobs } from "./jobs";
+import { CatalogReadiness } from "./catalog-readiness";
 import { UserGuide } from "./user-guide";
 const navigation = [
   ["dashboard", "Tổng quan", LayoutDashboard],
@@ -473,6 +475,7 @@ function Shell({ user, onLogout }: { user: User; onLogout: () => void }) {
           <div className="support-card">
             <span className="live-dot" /> PostgreSQL · dữ liệu bền vững
             <small>Thời gian hiển thị UTC+7</small>
+            <small>Bản ứng dụng: {APP_REVISION}</small>
           </div>
           <div className="user-profile">
             <span className="avatar">
@@ -573,7 +576,11 @@ function Shell({ user, onLogout }: { user: User; onLogout: () => void }) {
           <div className="page-heading">
             <div>
               <div className="eyebrow">OUTBOUND MANAGEMENT</div>
-              <h1>{titles[page][0]}</h1>
+              <h1>
+                {page === "returns" && location.returnTab === "dashboard"
+                  ? "Tổng quan hoàn kho"
+                  : titles[page][0]}
+              </h1>
               <p>{titles[page][1]}</p>
             </div>
             {user.role !== "staff" &&
@@ -607,6 +614,7 @@ function Shell({ user, onLogout }: { user: User; onLogout: () => void }) {
             <Loading />
           ) : (
             <>
+              <CatalogReadiness refs={refs} user={user} />
               {["dashboard", "reports", "shipments"].includes(page) && (
                 <Filters refs={refs} value={filters} onChange={setFilters} />
               )}

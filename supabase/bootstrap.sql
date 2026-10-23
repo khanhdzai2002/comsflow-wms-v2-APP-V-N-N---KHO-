@@ -771,6 +771,31 @@ $source_ede913b0fe7ad4de$;
 END
 $install_migration$;
 
+DO $initial_catalogs$
+BEGIN
+ IF NOT EXISTS(SELECT 1 FROM public.users) THEN
+  INSERT INTO public.warehouses(name) SELECT 'Kho ComsMiu' WHERE NOT EXISTS(SELECT 1 FROM public.warehouses);
+  INSERT INTO public.sales_channels(name) VALUES ('Shopee'),('TikTok Shop') ON CONFLICT(name) DO NOTHING;
+  INSERT INTO public.shipping_carriers(name) VALUES ('J&T Express'),('SPX Express'),('BEST Express'),('GHN'),('GHTK'),('Viettel Post'),('Ninja Van') ON CONFLICT(name) DO NOTHING;
+  INSERT INTO public.carrier_aliases(alias,carrier_id) SELECT 'jt',id FROM public.shipping_carriers WHERE name='J&T Express' ON CONFLICT(alias) DO NOTHING;
+  INSERT INTO public.carrier_aliases(alias,carrier_id) SELECT 'jnt',id FROM public.shipping_carriers WHERE name='J&T Express' ON CONFLICT(alias) DO NOTHING;
+  INSERT INTO public.carrier_aliases(alias,carrier_id) SELECT 'jtexpress',id FROM public.shipping_carriers WHERE name='J&T Express' ON CONFLICT(alias) DO NOTHING;
+  INSERT INTO public.carrier_aliases(alias,carrier_id) SELECT 'spx',id FROM public.shipping_carriers WHERE name='SPX Express' ON CONFLICT(alias) DO NOTHING;
+  INSERT INTO public.carrier_aliases(alias,carrier_id) SELECT 'spxexpress',id FROM public.shipping_carriers WHERE name='SPX Express' ON CONFLICT(alias) DO NOTHING;
+  INSERT INTO public.carrier_aliases(alias,carrier_id) SELECT 'shopeeexpress',id FROM public.shipping_carriers WHERE name='SPX Express' ON CONFLICT(alias) DO NOTHING;
+  INSERT INTO public.carrier_aliases(alias,carrier_id) SELECT 'best',id FROM public.shipping_carriers WHERE name='BEST Express' ON CONFLICT(alias) DO NOTHING;
+  INSERT INTO public.carrier_aliases(alias,carrier_id) SELECT 'bestexpress',id FROM public.shipping_carriers WHERE name='BEST Express' ON CONFLICT(alias) DO NOTHING;
+  INSERT INTO public.carrier_aliases(alias,carrier_id) SELECT 'ghn',id FROM public.shipping_carriers WHERE name='GHN' ON CONFLICT(alias) DO NOTHING;
+  INSERT INTO public.carrier_aliases(alias,carrier_id) SELECT 'giaohangnhanh',id FROM public.shipping_carriers WHERE name='GHN' ON CONFLICT(alias) DO NOTHING;
+  INSERT INTO public.carrier_aliases(alias,carrier_id) SELECT 'ghtk',id FROM public.shipping_carriers WHERE name='GHTK' ON CONFLICT(alias) DO NOTHING;
+  INSERT INTO public.carrier_aliases(alias,carrier_id) SELECT 'giaohangtietkiem',id FROM public.shipping_carriers WHERE name='GHTK' ON CONFLICT(alias) DO NOTHING;
+  INSERT INTO public.carrier_aliases(alias,carrier_id) SELECT 'viettelpost',id FROM public.shipping_carriers WHERE name='Viettel Post' ON CONFLICT(alias) DO NOTHING;
+  INSERT INTO public.carrier_aliases(alias,carrier_id) SELECT 'ninjavan',id FROM public.shipping_carriers WHERE name='Ninja Van' ON CONFLICT(alias) DO NOTHING;
+  INSERT INTO public.system_settings(key,value) VALUES('cutoff_hour','17') ON CONFLICT(key) DO NOTHING;
+ END IF;
+END
+$initial_catalogs$;
+
 -- Storage is configured only when the Supabase storage schema exists.
 DO $private_bucket$
 BEGIN

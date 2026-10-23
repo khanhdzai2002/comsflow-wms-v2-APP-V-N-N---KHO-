@@ -24,6 +24,7 @@ import {
   Empty,
   ExportButtons,
   OptionList,
+  useCatalogSelection,
   Modal,
   type Row,
 } from "./shared";
@@ -502,6 +503,9 @@ export function Imports({
 }
 export function People({ refs, user }: { refs: Row; user: User }) {
   const [assignment, setAssignment] = useState<Row | null>(null);
+  const [roleTarget, setRoleTarget] = useState<Row | null>(null);
+  const [newRole, setNewRole] = useState("staff");
+  const [roleReason, setRoleReason] = useState("");
   const [assignedMembers, setAssignedMembers] = useState<string[]>([]);
   const localDateTime = (offset = 0) =>
     new Date(new Date(refs.serverTime).getTime() + offset + 7 * 60 * 60 * 1000)
@@ -509,13 +513,75 @@ export function People({ refs, user }: { refs: Row; user: User }) {
       .slice(0, 16);
   const [tab, setTab] = useState("shifts"),
     [busy, setBusy] = useState(false);
+  const [warehouse, setWarehouse] = useCatalogSelection(refs.warehouses);
   const [name, setName] = useState(""),
-    [warehouse, setWarehouse] = useState(refs.warehouses[0]?.id ?? ""),
     [starts, setStarts] = useState(() => localDateTime()),
     [ends, setEnds] = useState(() => localDateTime(8 * 60 * 60 * 1000)),
     [members, setMembers] = useState<string[]>([user.id]);
   return (
     <>
+      {roleTarget && (
+        <Modal
+          title={"Đổi quyền · " + roleTarget.name}
+          onClose={() => !busy && setRoleTarget(null)}
+        >
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setBusy(true);
+              try {
+                await post("users/update", {
+                  id: roleTarget.id,
+                  role: newRole,
+                  reason: roleReason,
+                });
+                setRoleTarget(null);
+                refresh();
+                toast(
+                  "Đã cập nhật quyền. Tài khoản cần đăng nhập lại để cập nhật giao diện.",
+                );
+              } catch (e) {
+                toast((e as Error).message, true);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            <p>{roleTarget.email}</p>
+            <label className="field">
+              Vai trò mới
+              <select
+                value={newRole}
+                onChange={(e) => setNewRole(e.target.value)}
+              >
+                <option value="staff">Nhân viên kho</option>
+                <option value="manager">Quản lý kho</option>
+                <option value="admin">Admin</option>
+              </select>
+            </label>
+            <label className="field">
+              Lý do đổi quyền
+              <textarea
+                required
+                minLength={8}
+                maxLength={1000}
+                value={roleReason}
+                onChange={(e) => setRoleReason(e.target.value)}
+              />
+            </label>
+            <button
+              className="primary"
+              disabled={
+                busy ||
+                roleReason.trim().length < 8 ||
+                newRole === roleTarget.role
+              }
+            >
+              {busy ? "Đang lưu…" : "Lưu quyền"}
+            </button>
+          </form>
+        </Modal>
+      )}
       <div className="tabbar">
         <button
           className={tab === "shifts" ? "selected" : ""}
@@ -677,7 +743,10 @@ export function People({ refs, user }: { refs: Row; user: User }) {
                     </label>
                   ))}
               </div>
-              <button className="primary" disabled={busy || !members.length}>
+              <button
+                className="primary"
+                disabled={busy || !members.length || !warehouse}
+              >
                 <Plus size={17} /> Tạo ca làm việc
               </button>
             </form>
@@ -776,6 +845,20 @@ export function People({ refs, user }: { refs: Row; user: User }) {
                       <td>{u.active ? "Đang hoạt động" : "Đã khóa"}</td>
                       <td>
                         {user.role === "admin" && u.id !== user.id && (
+                          <div className="inline wrap">
+                            <button
+                              className="secondary small"
+                              onClick={() => {
+                                setRoleTarget(u);
+                                setNewRole(u.role);
+                                setRoleReason("");
+                              }}
+                            >
+                              Đổi quyền
+                            </button>
+                          </div>
+                        )}
+                        {user.role === "admin" && u.id !== user.id && (
                           <button
                             className="secondary small"
                             onClick={async () => {
@@ -787,13 +870,10 @@ export function People({ refs, user }: { refs: Row; user: User }) {
                                 await post("users/update", {
                                   id: u.id,
                                   active: !u.active,
-                                  role: u.role,
                                   reason,
                                 });
                                 refresh();
-                                toast(
-                                  "Đã cập nhật và thu hồi các phiên đăng nhập",
-                                );
+                                toast("Đã cập nhật trạng thái tài khoản");
                               } catch (e) {
                                 toast((e as Error).message, true);
                               }
@@ -883,6 +963,35 @@ export function Configuration({ refs, user }: { refs: Row; user: User }) {
     <>
       {user.role === "admin" ? (
         <>
+          <section className="card padded">
+            <h2>Danh mục cơ bản</h2>
+            <p className="muted">
+              Tạo Kho ComsMiu nếu chưa có kho; bổ sung sàn, hãng và tên gọi phổ
+              biến còn thiếu.
+            </p>
+            <button
+              className="secondary"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  const result = await post("config/setup", {});
+                  refresh();
+                  toast(
+                    result.created.length
+                      ? "Đã bổ sung danh mục cơ bản"
+                      : "Danh mục cơ bản đã đầy đủ",
+                  );
+                } catch (e) {
+                  toast((e as Error).message, true);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              Bổ sung danh mục cơ bản
+            </button>
+          </section>
           <DataMaintenance refs={refs} />
           <div className="two-columns">
             <section className="card padded">

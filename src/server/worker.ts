@@ -14,6 +14,8 @@ import {
   reportRoute,
 } from "../lib/jobs";
 import { storage } from "../lib/supabase";
+import { workerHealth } from "../lib/worker-health";
+import { APP_REVISION } from "../lib/app-version";
 async function route(req: AppRequest) {
   const path = req.nextUrl.pathname.replace(/^\/api\//, "");
   if (
@@ -76,9 +78,7 @@ async function route(req: AppRequest) {
   if (path === "jobs" && req.method === "GET") {
     const jobs =
       await db()`SELECT id,route,filename,status,error,attempts,created_at,updated_at,expires_at FROM data_jobs WHERE created_by=${user.id} ORDER BY created_at DESC LIMIT 100`;
-    const [health] =
-      await db()`SELECT max(seen_at) last_seen FROM worker_heartbeats`;
-    return AppResponse.json({ jobs, workerLastSeen: health.last_seen });
+    return AppResponse.json({ jobs, ...(await workerHealth()) });
   }
   const [, id, action] = path.split("/");
   const job = await ownedJob(user, id);
@@ -142,6 +142,7 @@ async function route(req: AppRequest) {
       error: job.error,
       result: job.status === "succeeded" ? job.result : null,
       attempts: job.attempts,
+      ...(await workerHealth()),
     });
   throw new AppError(404, "Không tìm thấy tác vụ");
 }
@@ -154,11 +155,20 @@ export default {
     const url = new URL(request.url);
     if (!url.pathname.startsWith("/api/")) {
       if (url.pathname === "/health")
-        return AppResponse.json({
-          ok: true,
-          platform: "cloudflare-supabase",
-          version: "2.0.0",
-        });
+        return AppResponse.json(
+          {
+            ok: true,
+            platform: "cloudflare-supabase",
+            version: "2.0.0",
+            appRevision: APP_REVISION,
+          },
+          {
+            headers: {
+              "Cache-Control": "no-store",
+              "X-ComsFlow-App-Revision": APP_REVISION,
+            },
+          },
+        );
       return env.ASSETS!.fetch(request);
     }
     const req = new AppRequest(request);
@@ -200,6 +210,7 @@ export default {
         );
         mutable.headers.set("Cache-Control", "no-store");
         mutable.headers.set("X-Content-Type-Options", "nosniff");
+        mutable.headers.set("X-ComsFlow-App-Revision", APP_REVISION);
         return mutable;
       } finally {
         ctx.waitUntil(

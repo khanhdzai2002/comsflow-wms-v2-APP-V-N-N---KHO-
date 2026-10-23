@@ -22,6 +22,7 @@ import {
   Modal,
   ExportButtons,
   OptionList,
+  useCatalogSelection,
   type Row,
 } from "./shared";
 import { SourceReconciliation } from "./source-manifests";
@@ -657,10 +658,10 @@ function Exceptions() {
 }
 export function Handovers({ refs }: { refs: Row }) {
   const { data: batches, error } = useData<Row[]>("handovers", 5000);
+  const [carrier, setCarrier] = useCatalogSelection(refs.carriers);
+  const [warehouse, setWarehouse] = useCatalogSelection(refs.warehouses);
   const [create, setCreate] = useState(false),
     [selected, setSelected] = useState<Row[]>([]),
-    [carrier, setCarrier] = useState(refs.carriers[0]?.id ?? ""),
-    [warehouse, setWarehouse] = useState(refs.warehouses[0]?.id ?? ""),
     [note, setNote] = useState(""),
     [from, setFrom] = useState(todayVN()),
     [to, setTo] = useState(todayVN()),
@@ -758,7 +759,7 @@ export function Handovers({ refs }: { refs: Row }) {
             />
             <button
               className="primary"
-              disabled={!selected.length || busy}
+              disabled={!selected.length || busy || !warehouse || !carrier}
               onClick={async () => {
                 setBusy(true);
                 try {

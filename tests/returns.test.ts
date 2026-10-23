@@ -488,3 +488,149 @@ describe("Nguồn hoàn, kho và xử lý độc lập", () => {
       expect(await sql`SELECT * FROM return_snapshots`).toHaveLength(106);
     });
 });
+
+describe("Tổng quan hoàn và danh sách mở từ chỉ số", () => {
+  it("counts unique requests, keeps lost separate from overdue, and carrier shares match drilldown", async () => {
+    const carriers =
+      await sql`INSERT INTO shipping_carriers(name) VALUES('J&T Express'),('GHN') RETURNING id,name`;
+    const jt = carriers.find((c) => c.name === "J&T Express")!.id;
+    const ghn = carriers.find((c) => c.name === "GHN")!.id;
+    const rows = Array.from({ length: 8 }, (_, i) =>
+      returnRow({
+        "Return Order ID": (1234567890123456700n + BigInt(i)).toString(),
+        "Return Logistics Tracking ID": i === 3 ? "" : "TRACKING-" + i,
+        "Return Logistics Provider": i === 4 ? "GHN" : "J&T Express",
+      }),
+    );
+    const parsed = await parse(rows);
+    expect(parsed.errors).toEqual([]);
+    await imported(rows);
+    const all = await returnList(admin, {});
+    const byName = Object.fromEntries(
+      rows.map((r, i) => [
+        "RETURN-" + i,
+        all.rows.find((c) => c.external_id === r["Return Order ID"])!,
+      ]),
+    );
+    await receiveReturn(staff, receive("TRACKING-0"));
+    await sql`INSERT INTO return_parcels(case_id,tracking_code,carrier_id,carrier_origin) VALUES(${byName["RETURN-0"].id},'TRACKING-EXTRA',${ghn},'manual')`;
+    await updateReturn(admin, {
+      id: byName["RETURN-1"].id,
+      version: byName["RETURN-1"].version,
+      status: "lost",
+      note: "Xác nhận thất lạc qua đối chiếu",
+    });
+    await updateReturn(admin, {
+      id: byName["RETURN-5"].id,
+      version: byName["RETURN-5"].version,
+      noPhysical: true,
+      note: "Xác nhận không cần trả hàng vật lý",
+    });
+    await sql`UPDATE return_cases SET platform_substatus='Request Canceled' WHERE id=${byName["RETURN-6"].id}`;
+    for (let i = 0; i < 2; i++)
+      await saveReturnClaim(admin, {
+        caseId: byName["RETURN-2"].id,
+        status: "won",
+        reason: "Hồ sơ được hãng duyệt",
+        deadline: null,
+        requested: 100,
+        approved: 80,
+        received: null,
+        receivedOn: null,
+      });
+    await updateReturn(admin, {
+      id: byName["RETURN-7"].id,
+      version: byName["RETURN-7"].version,
+      expectedAt: "2020-01-01",
+      note: "Quá mốc theo dõi thử nghiệm",
+    });
+    const data = await returnList(admin, {});
+    expect(data.totals).toMatchObject({
+      requests: 8,
+      orders: 1,
+      received: 1,
+      unreceived: 5,
+      lost: 1,
+      claim_success: 1,
+      excluded: 2,
+      partial_receipt: 1,
+      waiting_inspection: 1,
+    });
+    expect(data.carriers.reduce((sum, r) => sum + r.requests, 0)).toBe(8);
+    expect(
+      (await returnList(admin, { state: "claims_or_lost" })).totals.requests,
+    ).toBe(2);
+    const [clock] =
+      await sql`SELECT (clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date::text AS bucket_day`;
+    const receivedScope = await returnList(admin, {
+      dateType: "received",
+      from: clock.bucket_day,
+      to: clock.bucket_day,
+    });
+    expect(receivedScope.totals.requests).toBe(1);
+    expect(receivedScope.carriers).toMatchObject([
+      { id: "mixed", requests: 1 },
+    ]);
+    expect(
+      (
+        await returnList(admin, {
+          dateType: "imported",
+          from: clock.bucket_day,
+          to: clock.bucket_day,
+        })
+      ).totals.requests,
+    ).toBe(8);
+    for (const group of data.carriers) {
+      expect(
+        (
+          await returnList(admin, {
+            carrier: group.id,
+            carrierScope: "exclusive",
+          })
+        ).totals.requests,
+      ).toBe(group.requests);
+      expect(
+        (
+          await returnList(admin, {
+            carrier: group.id,
+            carrierScope: "exclusive",
+            state: "unreceived",
+          })
+        ).totals.requests,
+      ).toBe(group.unreceived);
+    }
+    expect(
+      (await returnList(admin, { carrier: "mixed" })).rows.map((r) => r.id),
+    ).toEqual([byName["RETURN-0"].id]);
+    expect(
+      (await returnList(admin, { carrier: "unknown" })).rows.map((r) => r.id),
+    ).toContain(byName["RETURN-3"].id);
+    for (const [state, key] of [
+      ["received", "received"],
+      ["unreceived", "unreceived"],
+      ["lost", "lost"],
+      ["claim_success", "claim_success"],
+      ["waiting_inspection", "waiting_inspection"],
+      ["partial_receipt", "partial_receipt"],
+      ["excluded", "excluded"],
+      ["overdue", "overdue"],
+    ]) {
+      expect((await returnList(admin, { state })).totals.requests).toBe(
+        data.totals[key],
+      );
+    }
+    expect(
+      (await returnList(admin, { carrier: jt })).rows.some(
+        (r) => r.id === byName["RETURN-0"].id,
+      ),
+    ).toBe(true);
+    expect(
+      (await returnList(admin, { warehouse: crypto.randomUUID() })).totals
+        .requests,
+    ).toBe(0);
+    expect(
+      (await returnList(admin, { from: "2026-10-20", to: "2026-10-21" })).totals
+        .requests,
+    ).toBe(0);
+  });
+});

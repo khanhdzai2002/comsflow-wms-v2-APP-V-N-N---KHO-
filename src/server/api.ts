@@ -20,7 +20,14 @@ import {
   sessionCookies,
   createAccount,
 } from "@/lib/auth";
-import { AppError, requireRole, managerRoles, statuses } from "@/lib/domain";
+import {
+  AppError,
+  requireRole,
+  managerRoles,
+  statuses,
+  warehouseIdSchema,
+} from "@/lib/domain";
+import { setupCatalogs } from "@/lib/catalog-setup";
 import { scan } from "@/lib/scan";
 import {
   referenceData,
@@ -192,6 +199,11 @@ export async function dispatch(req: NextRequest, trustedUser?: User) {
       await myScans(user, req.nextUrl.searchParams.get("shift") ?? undefined),
     );
   if (path.startsWith("returns")) {
+    if (path === "returns/events/mine" && req.method === "GET")
+      return json({
+        events:
+          await sql`SELECT e.*,u.name employee FROM return_events e JOIN users u ON u.id=e.actor_id WHERE e.actor_id=${user.id} ORDER BY e.created_at DESC LIMIT 20`,
+      });
     if (path === "returns/analytics" && req.method === "GET")
       return json(
         await returnAnalytics(
@@ -600,14 +612,14 @@ export async function dispatch(req: NextRequest, trustedUser?: User) {
     );
   }
   if (path === "shifts/start-self" && req.method === "POST")
-    return json(await startOwnShift(user, id((await body(req)).warehouseId)));
+    return json(await startOwnShift(user, (await body(req)).warehouseId));
   if (path === "shifts/assign" && req.method === "POST")
     return json(await assignShift(user, await body(req)));
   if (path === "shifts" && req.method === "POST") {
     const d = z
       .object({
         name: z.string().min(2).max(100),
-        warehouseId: z.uuid(),
+        warehouseId: warehouseIdSchema,
         startsAt: z.iso.datetime({ offset: true }),
         endsAt: z.iso.datetime({ offset: true }),
         members: z.array(z.uuid()).min(1).max(500),
@@ -617,6 +629,14 @@ export async function dispatch(req: NextRequest, trustedUser?: User) {
       throw new AppError(400, "Thời gian kết thúc phải sau bắt đầu");
     return json(
       await sql.begin(async (tx) => {
+        if (
+          !(await tx`SELECT id FROM warehouses WHERE id=${d.warehouseId}`)
+            .length
+        )
+          throw new AppError(
+            404,
+            "Kho không còn tồn tại. Tải lại danh mục rồi chọn kho.",
+          );
         const active =
           await tx`SELECT id FROM users WHERE id IN ${tx([...new Set(d.members)])} AND active`;
         if (active.length !== new Set(d.members).size)
@@ -643,6 +663,8 @@ export async function dispatch(req: NextRequest, trustedUser?: User) {
       await sql`SELECT a.*,u.name employee FROM audit_logs a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.created_at DESC LIMIT 200`,
     );
   requireRole(user, ["admin"]);
+  if (path === "config/setup" && req.method === "POST")
+    return json(await setupCatalogs(user));
   if (path === "maintenance/storage" && req.method === "GET")
     return json(await storageInfo(user));
   if (path === "maintenance/preview" && req.method === "POST")
@@ -696,10 +718,14 @@ export async function dispatch(req: NextRequest, trustedUser?: User) {
     const d = z
       .object({
         id: z.uuid(),
-        active: z.boolean(),
-        role: z.enum(["admin", "manager", "staff"]),
+        active: z.boolean().optional(),
+        role: z.enum(["admin", "manager", "staff"]).optional(),
         reason: z.string().trim().min(8).max(1000),
       })
+      .refine(
+        (d) => d.active !== undefined || d.role !== undefined,
+        "Chọn quyền hoặc trạng thái cần cập nhật",
+      )
       .parse(await body(req));
     if (d.id === user.id)
       throw new AppError(
@@ -712,7 +738,7 @@ export async function dispatch(req: NextRequest, trustedUser?: User) {
           await tx`SELECT id,name,role,active FROM users WHERE id=${d.id} FOR UPDATE`;
         if (!before) throw new AppError(404, "Không tìm thấy tài khoản");
         const [after] =
-          await tx`UPDATE users SET role=${d.role},active=${d.active} WHERE id=${d.id} RETURNING id,name,role,active`;
+          await tx`UPDATE users SET role=${d.role ?? before.role},active=${d.active ?? before.active} WHERE id=${d.id} RETURNING id,name,role,active`;
         await tx`DELETE FROM sessions WHERE user_id=${d.id}`;
         await audit(tx, user, "user_update", d.id, before, after, d.reason);
         return after;

@@ -102,3 +102,9 @@ Chủ project có thể dùng Supabase Dashboard để tạo Admin đầu tiên,
 Mở `scripts/sql/provision-first-admin.sql`, thay đúng một placeholder `THAY_EMAIL_VUA_TAO` bằng email đã tạo, chạy trong SQL Editor project `lyeyjfvxmqruszgfrjze`. Script chỉ cấp admin/active cho hồ sơ đã liên kết với đúng Auth user và email đã xác nhận; giữ nguyên ID, Auth credential và dữ liệu nghiệp vụ. Role/active trong database vẫn là nguồn quyền có hiệu lực. Không chỉnh trực tiếp bảng auth, không cấp quyền qua metadata do browser kiểm soát, không tạo endpoint tự nâng quyền.
 
 Script dùng cùng advisory lock với bootstrap, ghi audit trước/sau khi thay quyền, chạy lại không ghi trùng audit. Nếu đã có một Admin active khác, email chưa xác nhận hoặc hồ sơ chưa liên kết thì dừng và rollback. Không xóa tài khoản để vượt kiểm tra. Sau thông báo `Admin ready`, đăng nhập bằng email/password đã đặt trong Authentication; nút tạo Admin đầu tiên lúc này đóng là bình thường.
+
+## Rà soát vận hành và khởi tạo danh mục
+
+Xem [OPERATIONS_REVIEW.md](OPERATIONS_REVIEW.md). Bản `2026-10-23.operations-1` có thiết lập danh mục được ghi audit trong app, lựa chọn kho theo catalog mới tải, đổi quyền nhân viên và tổng quan hoàn với các nhóm hãng mở được danh sách. Với database đã có tài khoản, dùng nút **Thiết lập danh mục cơ bản** hoặc **Cấu hình hệ thống → Bổ sung danh mục cơ bản**, không chạy seed demo/installer để sửa lỗi mở ca. Không cần migration mới hay đổi Hyperdrive/secret cho bản này.
+
+`/health` trả thêm appRevision, API trả header X-ComsFlow-App-Revision và references trả trạng thái processor. Không coi build Ready hoặc database connected là xác nhận processor hoạt động. Dịch vụ đọc file vẫn cần Node worker riêng theo mục3; thiếu heartbeat thì PDF/Excel/report sẽ chưa hoàn tất, job được giữ lại. Bản web không tự mua hay tạo background service.

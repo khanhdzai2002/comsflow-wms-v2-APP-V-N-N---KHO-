@@ -21,6 +21,7 @@ import {
   Badge,
   Loading,
   OptionList,
+  useCatalogSelection,
   ApiError,
   type Row,
 } from "./shared";
@@ -50,8 +51,9 @@ export function Scanner({
       new Date(s.ends_at).getTime() > clock,
   );
   const [requestedShiftId, setShiftId] = useState("");
-  const [warehouseId, setWarehouseId] = useState(
-    active[0]?.warehouse_id ?? refs.warehouses[0]?.id ?? "",
+  const [warehouseId, setWarehouseId] = useCatalogSelection(
+    refs.warehouses,
+    active[0]?.warehouse_id ?? "",
   );
   const selectedShift =
     active.find(

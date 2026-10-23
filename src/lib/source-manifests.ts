@@ -1,3 +1,4 @@
+import { warehouseIdSchema } from "./domain";
 import { z } from "zod";
 import { db, audit, type User, type Tx } from "./db";
 import { AppError, requireRole, managerRoles } from "./domain";
@@ -5,7 +6,7 @@ import { canonicalSourceCarrier } from "./source-carriers";
 import type { SourcePdf } from "./pdf-source";
 
 export const sourceContextSchema = z.object({
-  warehouseId: z.uuid(),
+  warehouseId: warehouseIdSchema,
   carrierId: z.union([z.uuid(), z.literal("")]).default(""),
   channel: z.string().trim().max(100).default(""),
   shop: z.string().trim().min(1).max(100),

@@ -1,3 +1,4 @@
+import defaults from "../src/lib/catalog-defaults.json" with { type: "json" };
 import { createHash } from "node:crypto";
 import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
 const literal = (value) => "'" + value.replaceAll("'", "''") + "'";
@@ -56,6 +57,19 @@ BEGIN
 END
 $install_migration$;`);
 }
+// Fresh installations get the same catalogs as CLI installs. Existing users
+// require the explicit audited in-app setup action; migrations stay immutable.
+sections.push(`DO $initial_catalogs$
+BEGIN
+ IF NOT EXISTS(SELECT 1 FROM public.users) THEN
+  INSERT INTO public.warehouses(name) SELECT ${literal(defaults.warehouse)} WHERE NOT EXISTS(SELECT 1 FROM public.warehouses);
+  INSERT INTO public.sales_channels(name) VALUES ${defaults.channels.map((n) => "(" + literal(n) + ")").join(",")} ON CONFLICT(name) DO NOTHING;
+  INSERT INTO public.shipping_carriers(name) VALUES ${defaults.carriers.map((c) => "(" + literal(c.name) + ")").join(",")} ON CONFLICT(name) DO NOTHING;
+  ${defaults.carriers.flatMap((c) => c.aliases.map((a) => `INSERT INTO public.carrier_aliases(alias,carrier_id) SELECT ${literal(a)},id FROM public.shipping_carriers WHERE name=${literal(c.name)} ON CONFLICT(alias) DO NOTHING;`)).join("\n  ")}
+  INSERT INTO public.system_settings(key,value) VALUES('cutoff_hour','17') ON CONFLICT(key) DO NOTHING;
+ END IF;
+END
+$initial_catalogs$;`);
 sections.push(`-- Storage is configured only when the Supabase storage schema exists.
 DO $private_bucket$
 BEGIN

@@ -1,9 +1,10 @@
+import { warehouseIdSchema } from "./domain";
 import { z } from "zod";
 import { db, audit, type User } from "./db";
 import { AppError, requireRole, managerRoles } from "./domain";
 const schema = z.object({
   carrierId: z.uuid(),
-  warehouseId: z.uuid(),
+  warehouseId: warehouseIdSchema,
   shipmentIds: z.array(z.uuid()).min(1).max(2000),
   note: z.string().max(1000).default(""),
 });

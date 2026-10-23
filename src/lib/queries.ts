@@ -1,6 +1,8 @@
 import { db, type User } from "./db";
 import { todayVN, managerRoles, requireRole, AppError } from "./domain";
 import { z } from "zod";
+import { workerHealth } from "./worker-health";
+import { APP_REVISION } from "./app-version";
 export type Filters = {
   from?: string;
   to?: string;
@@ -102,6 +104,8 @@ export async function referenceData(user: User) {
       ? []
       : await sql`SELECT id,name,email,role,active FROM users ORDER BY name`;
   return {
+    appRevision: APP_REVISION,
+    ...(user.role !== "staff" ? await workerHealth() : {}),
     serverTime: (await sql`SELECT clock_timestamp() AS at`)[0].at,
     warehouses,
     channels,

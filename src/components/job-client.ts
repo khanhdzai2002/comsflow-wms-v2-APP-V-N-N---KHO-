@@ -13,15 +13,36 @@ function canonical(value: any): string {
   return JSON.stringify(value);
 }
 export async function requestJob(path: string, body?: unknown) {
-  const response = await fetch("/api/" + path, {
-    method: body === undefined ? "GET" : "POST",
-    headers: { "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-    cache: "no-store",
-  });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error || "Chưa xử lý được tác vụ");
-  return data;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  try {
+    let response: Response;
+    try {
+      response = await fetch("/api/" + path, {
+        method: body === undefined ? "GET" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        cache: "no-store",
+        signal: controller.signal,
+      });
+    } catch {
+      throw new Error(
+        "Chưa nhận được xác nhận từ máy chủ. Kiểm tra mạng và mở “Tác vụ dữ liệu” để đối chiếu trước khi thử lại.",
+      );
+    }
+    let data;
+    try {
+      data = await response.json();
+    } catch {
+      throw new Error(
+        "Máy chủ chưa trả kết quả hợp lệ. Mở “Tác vụ dữ liệu” để kiểm tra; chưa xác nhận thao tác thành công.",
+      );
+    }
+    if (!response.ok) throw new Error(data.error || "Chưa xử lý được tác vụ");
+    return data;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 export async function waitJob(id: string) {
   const end = Date.now() + 9 * 60 * 1000;
@@ -30,6 +51,10 @@ export async function waitJob(id: string) {
     if (job.status === "succeeded") return { ...job.result, _jobId: id };
     if (job.status === "failed" || job.status === "cancelled")
       throw new Error(job.error || "Tác vụ đã dừng");
+    if (job.status === "queued" && job.workerAvailable === false)
+      throw new Error(
+        "File đã được lưu nhưng dịch vụ xử lý file chưa hoạt động. Mở “Tác vụ dữ liệu” để xem trạng thái; cần kết nối dịch vụ xử lý trước khi đọc PDF/Excel hoặc xuất báo cáo.",
+      );
     await new Promise((resolve) => setTimeout(resolve, 1500));
   }
   throw new Error(

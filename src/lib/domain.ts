@@ -59,11 +59,14 @@ export function normalizeCode(raw: string) {
 }
 export const validCode = (code: string) =>
   /^[A-Z0-9][A-Z0-9._-]{3,79}$/.test(code);
+export const warehouseIdSchema = z.uuid({
+  error: "Chọn kho hợp lệ. Nếu chưa có kho, hãy thiết lập danh mục kho trước.",
+});
 export const scanSchema = z.object({
   code: z.string().min(1).max(2048),
   requestId: z.uuid(),
   shiftId: z.uuid(),
-  warehouseId: z.uuid(),
+  warehouseId: warehouseIdSchema,
   carrierId: z.union([z.uuid(), z.literal("")]).optional(),
   method: z.enum(["hid", "camera", "manual"]),
 });

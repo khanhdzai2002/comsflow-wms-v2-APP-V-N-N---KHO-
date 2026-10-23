@@ -1,3 +1,4 @@
+import { warehouseIdSchema } from "./domain";
 import { createHash } from "node:crypto";
 import { carrierCatalog, identifyCarrier } from "./carriers";
 import {
@@ -19,7 +20,7 @@ import type { ReturnFile, ReturnRow } from "./return-import";
 import { returnProcessing, platformApproved } from "./return-domain";
 
 const contextSchema = z.object({
-  warehouseId: z.uuid(),
+  warehouseId: warehouseIdSchema,
   shop: z.string().trim().min(1).max(100),
   previewFingerprint: z
     .string()
@@ -370,6 +371,7 @@ export const returnFilters = z.object({
   shop: z.string().max(100).default(""),
   state: z.string().max(40).default(""),
   carrier: z.string().max(100).default(""),
+  carrierScope: z.enum(["any", "exclusive"]).default("any"),
   sort: z.enum(["date", "carrier"]).default("date"),
   reason: z.string().max(50).default(""),
   page: z.coerce.number().int().min(1).max(100000).default(1),
@@ -382,8 +384,18 @@ export async function returnList(user: User, raw: unknown, all = false) {
     "isolation level repeatable read read only",
     async (sql) => {
       const catalog = await carrierCatalog(sql);
+      const scopeDate =
+        f.dateType === "received"
+          ? sql`(SELECT max(received_at) FROM return_parcels WHERE active AND case_id=r.id)`
+          : f.dateType === "imported"
+            ? sql`(SELECT created_at FROM return_imports WHERE id=r.last_import_id)`
+            : sql`r.requested_at`;
+      const scope = sql`(${!f.warehouse} OR r.warehouse_id=${f.warehouse || null}::uuid)
+        AND (${!f.channel} OR ch.name=${f.channel}) AND (${!f.shop} OR sh.name=${f.shop})
+        AND (${!f.from} OR (${scopeDate} AT TIME ZONE 'Asia/Ho_Chi_Minh')::date>=${f.from ?? null}::date)
+        AND (${!f.to} OR (${scopeDate} AT TIME ZONE 'Asia/Ho_Chi_Minh')::date<=${f.to ?? null}::date)`;
       const parcelIdentities: any[] = (
-        await sql`SELECT p.id,p.case_id,p.tracking_code,p.source_carrier,p.carrier_id,p.carrier_origin FROM return_parcels p JOIN return_cases r ON r.id=p.case_id WHERE p.active AND (${!f.warehouse} OR r.warehouse_id=${f.warehouse || null}::uuid)`
+        await sql`SELECT p.id,p.case_id,p.tracking_code,p.source_carrier,p.carrier_id,p.carrier_origin FROM return_parcels p JOIN return_cases r ON r.id=p.case_id JOIN shops sh ON sh.id=r.shop_id JOIN sales_channels ch ON ch.id=sh.channel_id WHERE p.active AND ${scope}`
       ).map((p: any): any => ({
         ...p,
         ...identifyCarrier(
@@ -393,6 +405,27 @@ export async function returnList(user: User, raw: unknown, all = false) {
           p.carrier_origin === "manual" ? p.carrier_id : null,
         ),
       }));
+      const carrierGroups = new Map<string, Set<string>>();
+      for (const p of parcelIdentities) {
+        const ids = carrierGroups.get(p.case_id) ?? new Set<string>();
+        ids.add(p.carrierId ?? "unknown");
+        carrierGroups.set(p.case_id, ids);
+      }
+      const identities = [...carrierGroups].map(([case_id, ids]) => {
+        const carrier_id = ids.size > 1 ? "mixed" : [...ids][0];
+        return {
+          case_id,
+          carrier_id,
+          carrier:
+            carrier_id === "mixed"
+              ? "Nhiều hãng / cần đối chiếu"
+              : (catalog.carriers.find((c) => c.id === carrier_id)?.name ??
+                "Chưa xác định"),
+        };
+      });
+      const exclusiveCases = identities
+        .filter((p) => p.carrier_id === f.carrier)
+        .map((p) => p.case_id);
       const carrierCases = parcelIdentities
         .filter((p) =>
           f.carrier === "unknown" ? !p.carrierId : p.carrierId === f.carrier,
@@ -404,7 +437,7 @@ export async function returnList(user: User, raw: unknown, all = false) {
       const approvedIds =
         f.state === "approved"
           ? (
-              await sql`SELECT id,source_data,platform_status,platform_substatus FROM return_cases`
+              await sql`SELECT r.id,r.source_data,r.platform_status,r.platform_substatus FROM return_cases r JOIN shops sh ON sh.id=r.shop_id JOIN sales_channels ch ON ch.id=sh.channel_id WHERE ${scope}`
             )
               .filter((r) => platformApproved(r, approvedStatuses))
               .map((r) => r.id as string)
@@ -413,7 +446,9 @@ export async function returnList(user: User, raw: unknown, all = false) {
         ? await sql`SELECT * FROM return_reason_rules WHERE active`
         : [];
       const reasonCases = f.reason
-        ? (await sql`SELECT id,reason_original,source_data FROM return_cases`)
+        ? (
+            await sql`SELECT r.id,r.reason_original,r.source_data FROM return_cases r JOIN shops sh ON sh.id=r.shop_id JOIN sales_channels ch ON ch.id=sh.channel_id WHERE ${scope}`
+          )
             .filter(
               (r) =>
                 classifyReason(
@@ -445,6 +480,8 @@ export async function returnList(user: User, raw: unknown, all = false) {
   COALESCE(p.parcels,0)::int parcels,COALESCE(p.received,0)::int received,p.received_at,
   COALESCE(i.quantity,0)::int quantity,COALESCE(i.received_quantity,0)::int received_quantity,COALESCE(i.missing_sku,0)::int missing_sku,
   COALESCE(cl.claims,0)::int claims,COALESCE(cl.requested_amount,0) claim_requested,COALESCE(cl.approved_amount,0) claim_approved,COALESCE(cl.received_amount,0) claim_received,
+  (COALESCE(cl.claim_success,false) OR r.processing_status IN ('claim_won','compensated')) claim_success,
+  (COALESCE(cl.claim_open,false) OR r.processing_status IN ('claim_open','claim_submitted')) claim_open,
   (NOT r.no_physical_return AND COALESCE(p.received,0)=0 AND r.platform_substatus NOT IN ('Request Canceled') AND
    COALESCE(r.expected_at,((r.requested_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date+${overdueDays}::int))<(now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date) overdue,
   (SELECT filename FROM return_imports WHERE id=r.last_import_id) source_file,
@@ -452,7 +489,7 @@ export async function returnList(user: User, raw: unknown, all = false) {
  FROM return_cases r JOIN shops sh ON sh.id=r.shop_id JOIN sales_channels ch ON ch.id=sh.channel_id JOIN warehouses w ON w.id=r.warehouse_id LEFT JOIN users u ON u.id=r.assigned_to
  LEFT JOIN LATERAL(SELECT count(*) parcels,count(received_at) received,max(received_at) received_at FROM return_parcels WHERE case_id=r.id AND active) p ON true
  LEFT JOIN LATERAL(SELECT sum(expected_qty) quantity,sum(received_qty) received_quantity,count(*) FILTER(WHERE seller_sku='') missing_sku FROM return_items WHERE case_id=r.id AND active) i ON true
- LEFT JOIN LATERAL(SELECT count(*) claims,sum(requested_amount) requested_amount,sum(approved_amount) approved_amount,sum(received_amount) received_amount FROM return_claims WHERE case_id=r.id) cl ON true`;
+ LEFT JOIN LATERAL(SELECT count(*) claims,sum(requested_amount) requested_amount,sum(approved_amount) approved_amount,sum(received_amount) received_amount,bool_or(status IN ('won','paid')) claim_success,bool_or(status IN ('open','submitted')) claim_open FROM return_claims WHERE case_id=r.id) cl ON true`;
       const date =
         f.dateType === "received"
           ? sql`b.received_at`
@@ -462,7 +499,10 @@ export async function returnList(user: User, raw: unknown, all = false) {
       const filter = sql`(${!f.from} OR (${date} AT TIME ZONE 'Asia/Ho_Chi_Minh')::date>=${f.from ?? null}::date) AND (${!f.to} OR (${date} AT TIME ZONE 'Asia/Ho_Chi_Minh')::date<=${f.to ?? null}::date)
  AND (${!f.channel} OR b.channel=${f.channel}) AND (${!f.warehouse} OR b.warehouse_id=${f.warehouse || null}::uuid) AND (${!f.shop} OR b.shop=${f.shop})
  AND (${!tokens.length} OR b.external_id=ANY(${tokens}::text[]) OR b.order_code=ANY(${tokens}::text[]) OR EXISTS(SELECT 1 FROM return_parcels p WHERE p.case_id=b.id AND p.tracking_code=ANY(${tokens}::text[])) OR b.external_id ILIKE ${"%" + f.q + "%"} OR b.order_code ILIKE ${"%" + f.q + "%"})
- AND (${!f.carrier} OR b.id=ANY(${carrierCases}::uuid[]))
+ AND (${!f.carrier}
+ OR (${f.carrierScope === "exclusive" || f.carrier === "mixed"} AND b.id=ANY(${exclusiveCases}::uuid[]))
+ OR (${f.carrierScope !== "exclusive" && f.carrier !== "mixed"} AND b.id=ANY(${carrierCases}::uuid[]))
+ OR (${f.carrier === "unknown"} AND b.parcels=0))
  AND (${!f.reason} OR b.id=ANY(${reasonCases}::uuid[]))
  AND (${!f.state} OR b.processing_status=${f.state} OR (b.inspection_status=${f.state} AND (b.inspection_status<>'full' OR NOT b.inspection_stale))
  OR (${f.state === "unreceived"} AND b.received=0 AND NOT b.no_physical_return AND b.platform_substatus<>'Request Canceled')
@@ -471,14 +511,27 @@ export async function returnList(user: User, raw: unknown, all = false) {
  OR (${f.state === "missing_tracking"} AND b.parcels=0)
  OR (${f.state === "overdue"} AND b.overdue)
  OR (${f.state === "stale"} AND b.inspection_stale)
- OR (${f.state === "claims"} AND b.claims>0))`;
+ OR (${f.state === "claims"} AND b.claims>0)
+ OR (${f.state === "claims_or_lost"} AND (b.claims>0 OR b.processing_status IN ('lost','suspected_lost','claim_open','claim_submitted','claim_won','claim_lost','compensated')))
+ OR (${f.state === "claim_success"} AND b.claim_success)
+ OR (${f.state === "open_claims"} AND b.claim_open)
+ OR (${f.state === "waiting_inspection"} AND b.received>0 AND (b.inspection_status='pending' OR b.inspection_stale))
+ OR (${f.state === "partial_receipt"} AND b.received>0 AND b.received<b.parcels)
+ OR (${f.state === "excluded"} AND b.received=0 AND (b.no_physical_return OR b.platform_substatus='Request Canceled')))`;
       const [totals] =
         await sql`WITH b AS (${base}),filtered AS(SELECT * FROM b WHERE ${filter}) SELECT count(*)::int requests,count(DISTINCT (shop_id,order_code))::int orders,
  (SELECT count(DISTINCT tracking_code)::int FROM return_parcels WHERE active AND case_id IN(SELECT id FROM filtered)) tracking_codes,
  COALESCE(sum(parcels),0)::int parcels,COALESCE(sum(quantity),0)::int quantity,count(*) FILTER(WHERE received=0 AND NOT no_physical_return AND platform_substatus<>'Request Canceled')::int unreceived,
  count(*) FILTER(WHERE received>0)::int received,count(*) FILTER(WHERE inspection_status='full' AND NOT inspection_stale)::int full,
  count(*) FILTER(WHERE overdue)::int overdue,count(*) FILTER(WHERE parcels=0)::int missing_tracking,count(*) FILTER(WHERE claims>0)::int claims,
- count(*) FILTER(WHERE inspection_stale)::int stale,COALESCE(sum(claim_requested),0) claim_requested,COALESCE(sum(claim_approved),0) claim_approved,COALESCE(sum(claim_received),0) claim_received FROM filtered`;
+ count(*) FILTER(WHERE inspection_stale)::int stale,
+ count(*) FILTER(WHERE processing_status='lost')::int lost,
+ count(*) FILTER(WHERE claim_success)::int claim_success,
+ count(*) FILTER(WHERE claim_open)::int open_claims,
+ count(*) FILTER(WHERE received>0 AND (inspection_status='pending' OR inspection_stale))::int waiting_inspection,
+ count(*) FILTER(WHERE received>0 AND received<parcels)::int partial_receipt,
+ count(*) FILTER(WHERE received=0 AND (no_physical_return OR platform_substatus='Request Canceled'))::int excluded,
+ COALESCE(sum(claim_requested),0) claim_requested,COALESCE(sum(claim_approved),0) claim_approved,COALESCE(sum(claim_received),0) claim_received FROM filtered`;
       const rows =
         await sql`WITH b AS (${base}) SELECT * FROM b WHERE ${filter} ORDER BY ${f.sort === "carrier" ? sql`array_position(${sortedCarrierCases}::uuid[],b.id),` : sql``} requested_at DESC,id LIMIT ${all ? 10001 : 50} OFFSET ${all ? 0 : (f.page - 1) * 50}`;
       if (all && rows.length > 10000)
@@ -487,6 +540,15 @@ export async function returnList(user: User, raw: unknown, all = false) {
         await sql`SELECT e.*,u.name employee FROM return_events e JOIN users u ON u.id=e.actor_id WHERE actor_id=${user.id} ORDER BY e.created_at DESC LIMIT 20`;
       const channels =
         await sql`WITH b AS (${base}) SELECT channel,count(*)::int requests,sum(parcels)::int parcels,sum(received)::int received FROM b WHERE ${filter} GROUP BY channel ORDER BY channel`;
+      const carriers =
+        await sql`WITH b AS (${base}), filtered AS(SELECT * FROM b WHERE ${filter}),
+ identities AS (SELECT * FROM jsonb_to_recordset(${sql.json(identities)}) AS x(case_id uuid,carrier_id text,carrier text))
+ SELECT coalesce(i.carrier_id,'unknown') id,coalesce(i.carrier,'Chưa xác định') name,
+ count(*)::int requests,count(*) FILTER(WHERE b.received>0)::int received,
+ count(*) FILTER(WHERE b.received=0 AND NOT b.no_physical_return AND b.platform_substatus<>'Request Canceled')::int unreceived,
+ count(*) FILTER(WHERE b.processing_status='lost')::int lost,
+ count(*) FILTER(WHERE b.claim_success)::int claim_success
+ FROM filtered b LEFT JOIN identities i ON i.case_id=b.id GROUP BY i.carrier_id,i.carrier ORDER BY requests DESC,name`;
       const trend =
         await sql`WITH b AS (${base}) SELECT to_char(requested_at AT TIME ZONE 'Asia/Ho_Chi_Minh','YYYY-MM-DD') AS bucket_day,count(*)::int requests,count(*) FILTER(WHERE received>0)::int received FROM b WHERE ${filter} GROUP BY bucket_day ORDER BY bucket_day DESC LIMIT 60`;
       for (const r of rows) {
@@ -504,6 +566,7 @@ export async function returnList(user: User, raw: unknown, all = false) {
         events,
         overdueDays,
         channels,
+        carriers,
         trend: trend.reverse().map((r) => ({ ...r, day: r.bucket_day })),
       };
     },
@@ -543,7 +606,7 @@ export async function returnDetail(user: User, id: string) {
 const receiveSchema = z.object({
   code: z.string().min(1).max(2048),
   requestId: z.uuid(),
-  warehouseId: z.uuid(),
+  warehouseId: warehouseIdSchema,
   shiftId: z.uuid(),
   parcelId: z.uuid().optional(),
   method: z.enum(["manual", "hid", "camera"]).default("manual"),

@@ -1,0 +1,16 @@
+{
+  "warehouse": "Kho ComsMiu",
+  "channels": ["Shopee", "TikTok Shop"],
+  "carriers": [
+    { "name": "J&T Express", "aliases": ["jt", "jnt", "jtexpress"] },
+    {
+      "name": "SPX Express",
+      "aliases": ["spx", "spxexpress", "shopeeexpress"]
+    },
+    { "name": "BEST Express", "aliases": ["best", "bestexpress"] },
+    { "name": "GHN", "aliases": ["ghn", "giaohangnhanh"] },
+    { "name": "GHTK", "aliases": ["ghtk", "giaohangtietkiem"] },
+    { "name": "Viettel Post", "aliases": ["viettelpost"] },
+    { "name": "Ninja Van", "aliases": ["ninjavan"] }
+  ]
+}

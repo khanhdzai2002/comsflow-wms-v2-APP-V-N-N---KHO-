@@ -47,3 +47,35 @@ it("thời gian chờ bảo vệ cả lúc đọc response body, không kết th
   await vi.advanceTimersByTimeAsync(30001);
   expect(await result).toBeInstanceOf(ApiError);
 });
+it("a saved file reports an offline processor immediately without claiming success", async () => {
+  const { waitJob } = await import("../src/components/job-client");
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json({ status: "queued", workerAvailable: false }),
+    ),
+  );
+  await expect(waitJob("fixture-job")).rejects.toThrow(
+    "File đã được lưu nhưng dịch vụ xử lý file chưa hoạt động",
+  );
+});
+it("file job requests time out rather than hanging after a lost network response", async () => {
+  vi.useFakeTimers();
+  const { requestJob } = await import("../src/components/job-client");
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      (_url, options) =>
+        new Promise((_resolve, reject) =>
+          options.signal.addEventListener("abort", () =>
+            reject(new Error("aborted")),
+          ),
+        ),
+    ),
+  );
+  const result = requestJob("jobs/fixture/commit", {}).catch((e) => e);
+  await vi.advanceTimersByTimeAsync(30001);
+  expect((await result).message).toContain(
+    "Chưa nhận được xác nhận từ máy chủ",
+  );
+});

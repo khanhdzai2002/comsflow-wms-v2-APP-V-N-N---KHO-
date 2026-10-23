@@ -116,6 +116,15 @@ export function useData<T = any>(path: string | null, interval = 0) {
   }, [load, interval]);
   return { data, error, loading, reload: load };
 }
+export function useCatalogSelection(rows: Row[], preferred = "") {
+  const [requested, setRequested] = useState(preferred);
+  const value = rows.some((r) => r.id === requested)
+    ? requested
+    : rows.some((r) => r.id === preferred)
+      ? preferred
+      : (rows[0]?.id ?? "");
+  return [value as string, setRequested] as const;
+}
 export function Loading() {
   return (
     <div className="empty">
@@ -242,6 +251,9 @@ export function Time({ value }: { value?: string }) {
 export function OptionList({ rows }: { rows: Row[] }) {
   return (
     <>
+      {!rows.length && (
+        <option value="">Chưa có danh mục · cần thiết lập</option>
+      )}
       {rows.map((row) => (
         <option key={row.id} value={row.id}>
           {row.name}

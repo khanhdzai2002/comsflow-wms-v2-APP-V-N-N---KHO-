@@ -23,6 +23,7 @@ import {
   Empty,
   Badge,
   OptionList,
+  useCatalogSelection,
   type Row,
 } from "./shared";
 
@@ -37,7 +38,7 @@ type PdfSelection = {
 const MAX_PDF_FILES = 20;
 export function PdfSourceImport({ refs }: { refs: Row }) {
   const [records, setRecords] = useState<PdfSelection[]>([]);
-  const [warehouseId, setWarehouse] = useState("");
+  const [warehouse, setWarehouse] = useCatalogSelection(refs.warehouses);
   const [channel, setChannel] = useState("");
   const [carrierId, setCarrier] = useState("");
   const [shop, setShop] = useState("ComsMiu");
@@ -46,7 +47,6 @@ export function PdfSourceImport({ refs }: { refs: Row }) {
     [error, setError] = useState(""),
     [progress, setProgress] = useState("");
   const [saved, setSaved] = useState("");
-  const warehouse = warehouseId || refs.warehouses?.[0]?.id || "";
   const summary = summarizePdfBatch(records);
   const pending = summary.readyIndexes.filter((i) => !records[i].result);
   const savedCount = records.filter((r) => r.result).length;
@@ -92,6 +92,10 @@ export function PdfSourceImport({ refs }: { refs: Row }) {
   }
   async function inspect() {
     if (busy || !records.length) return;
+    if (!warehouse) {
+      setError("Thiết lập và chọn kho trước khi đọc PDF.");
+      return;
+    }
     setBusy(true);
     setError("");
     setSaved("");
