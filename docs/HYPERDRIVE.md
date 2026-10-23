@@ -4,14 +4,14 @@ Dùng Hyperdrive để Cloudflare quản lý kết nối tới PostgreSQL. Dữ 
 
 ## Tạo resource trên tài khoản Cloudflare
 
-Từ dashboard cấp tài khoản, tìm **Hyperdrive** (thường trong **Storage & databases**) và chọn **Create configuration**. Tên gợi ý `comsflow-wms-db`. Chọn PostgreSQL và nhập các tham số Session pooler lấy từ Connect của chính project Supabase:
+Từ dashboard cấp tài khoản, tìm **Hyperdrive** (thường trong **Storage & databases**) và chọn **Create configuration**. Tên gợi ý `comsflow-wms-db`. Chọn PostgreSQL và nhập các tham số **Direct connection** lấy từ Connect của chính project Supabase. [Cloudflare khuyến nghị dùng Direct connection cho Supabase](https://developers.cloudflare.com/hyperdrive/examples/connect-to-postgres/postgres-database-providers/supabase/) vì Hyperdrive đã thực hiện pooling:
 
 | Trường   | Giá trị hiện tại do chủ dự án cung cấp                                 |
 | -------- | ---------------------------------------------------------------------- |
-| Host     | `aws-0-ap-northeast-2.pooler.supabase.com`                             |
+| Host     | `db.lyeyjfvxmqruszgfrjze.supabase.co`                                  |
 | Port     | `5432`                                                                 |
 | Database | `postgres`                                                             |
-| User     | `postgres.lyeyjfvxmqruszgfrjze`                                        |
+| User     | `postgres`                                                             |
 | Password | Mật khẩu database, nhập trực tiếp trong trường password của Cloudflare |
 
 Bật TLS cho kết nối origin theo lựa chọn bảo mật mà Hyperdrive cung cấp. Tắt **Query caching** / bật **Disable caching** để đọc mới trạng thái quét/quyền/kho. Giữ pooling hoạt động. Chi phí và quota theo gói hiển thị trong dashboard Cloudflare.
@@ -36,3 +36,7 @@ Ví dụ trên là cấu trúc minh họa, không deploy placeholder. `keep_vars
 - Kiểm tra kết nối, đăng nhập, đọc quyền/kho, quét một mã và đọc lại trạng thái ngay; xác minh Query caching thực sự tắt.
 - Kiểm tra transaction/idempotency và đóng request; không coi local simulation là xác nhận hosted Hyperdrive đã hoạt động.
 - Giữ các Secret Auth/Storage hiện tại. Không chạy SQL bootstrap/seed hoặc xóa dữ liệu để sửa lỗi kết nối.
+
+## Đính chính đường kết nối origin
+
+Hướng dẫn ban đầu đã dùng Session pooler; tài liệu Cloudflare chính thức yêu cầu Direct connection cho Hyperdrive. Đổi host/user theo bảng ở trên, giữ cổng5432 và mật khẩu database gốc. Không mặc định lỗi Invalid credentials chứng minh mật khẩu sai: cần Testconnection trên đườngdirect hoặc log provider để xác định. Sharedpooler Supabase có cơ chế cachecredential/circuitbreaker sau passwordrotation; việc đó chưa được xác nhận là nguyên nhân của project này.

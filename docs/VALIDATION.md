@@ -70,3 +70,7 @@ Tái hiện bằng driver postgres/cf thực và RuntimeSocket fixture: raw.clos
 Cả Session và Transaction pooler hosted do chủ dự án kiểm tra đều đóng sau startup113byte, không nhận bytePostgreSQL; chưa có nguyên nhân provider được xác nhận. Thêm cấu hình Hyperdrive ưu tiên binding, không tự fallback khi binding tồn tại nhưng lỗi/trống, TLS origin doHyperdrive quản lý và bỏ startup statement_timeout/ORMparams. Chưa thêm ID giả hoặc tạo resourceCloudflare. Querycaching phải tắt tạiresource để bảo đảm đọc mới nghiệp vụ.
 
 265/265 test (19 files), typecheck, lint, Vite build, worker build và Wrangler dry-run đạt. SimulatedHyperdrivebinding tới local *_test được ưu tiên trước URI fallback cố ý sai; transaction tham số giữ mã000123456789 vàquantity42. Đây là mô phỏng lựa chọnbinding/transaction, chưa xác nhận hostedHyperdrive. Cần chủ tài khoản tạoresource, Testconnection và cung cấp ID khôngbí mật để khai báo binding trongGit.
+
+## Đính chính cấu hình Hyperdrive origin theo tài liệu chính thức
+
+Đã đọc source chính thức Cloudflare và Supabase qua readonlygitcheckouts. CloudflareSupabaseHyperdriveguide yêu cầu Direct connection, không qua pooledconnection. docs/HYPERDRIVE.md sửa originthành db.lyeyjfvxmqruszgfrjze.supabase.co:5432, userpostgres. Đây là sửa hướng dẫn, không deploy/đổi resource/mật khẩu/data hosted. Chưa có IDHyperdrive hoặc Testconnection thànhcông từchủproject.
