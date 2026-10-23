@@ -12,6 +12,8 @@ import {
 } from "lucide-react";
 import type { User } from "@/lib/db";
 import { formatTime } from "@/lib/domain";
+import { shiftInterval } from "@/lib/shift-time";
+import { ShiftDateTime } from "./shift-date-time";
 import { fields, fieldLabels } from "@/lib/import-fields";
 import {
   api,
@@ -667,8 +669,7 @@ export function People({ refs, user }: { refs: Row; user: User }) {
                   await post("shifts", {
                     name,
                     warehouseId: warehouse,
-                    startsAt: new Date(starts + ":00+07:00").toISOString(),
-                    endsAt: new Date(ends + ":00+07:00").toISOString(),
+                    ...shiftInterval(starts, ends),
                     members,
                   });
                   refresh();
@@ -702,25 +703,21 @@ export function People({ refs, user }: { refs: Row; user: User }) {
                     <OptionList rows={refs.warehouses} />
                   </select>
                 </label>
-                <label className="field">
-                  Bắt đầu (giờ Việt Nam)
-                  <input
-                    type="datetime-local"
-                    required
-                    value={starts}
-                    onChange={(e) => setStarts(e.target.value)}
-                  />
-                </label>
-                <label className="field">
-                  Kết thúc (giờ Việt Nam)
-                  <input
-                    type="datetime-local"
-                    required
-                    value={ends}
-                    onChange={(e) => setEnds(e.target.value)}
-                  />
-                </label>
+                <ShiftDateTime
+                  label="Bắt đầu"
+                  value={starts}
+                  onChange={setStarts}
+                />
+                <ShiftDateTime
+                  label="Kết thúc"
+                  value={ends}
+                  onChange={setEnds}
+                />
               </div>
+              <p className="small-note">
+                Nhập giờ theo định dạng 24 giờ: 12:00 là 12 giờ trưa; 00:00 là
+                đầu ngày. Ca qua đêm cần chọn ngày kết thúc hôm sau.
+              </p>
               <h3>Nhân viên được phân công</h3>
               <div className="member-picker">
                 {refs.users

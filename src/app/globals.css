@@ -503,6 +503,30 @@ summary {
 .form-grid .full {
   grid-column: 1/-1;
 }
+.shift-date-time {
+  min-width: 0;
+  border: 0;
+  padding: 0;
+}
+.shift-date-time legend {
+  padding: 0;
+  margin-bottom: 7px;
+}
+.shift-date-time-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 88px 70px;
+  gap: 8px;
+}
+.shift-date-time-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  font-size: 11px;
+}
+.shift-date-time-controls input {
+  min-width: 0;
+}
 .two-columns {
   display: grid;
   grid-template-columns: 1fr 1fr;

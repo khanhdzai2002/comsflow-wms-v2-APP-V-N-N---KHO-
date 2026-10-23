@@ -219,6 +219,93 @@ test("empty catalogs can be initialized and the open shift form submits the newl
   expect(submitted.members).toEqual([id]);
 });
 
+test.describe("24-hour shift scheduling independent of browser locale", () => {
+  test.use({ locale: "en-US", timezoneId: "America/Los_Angeles" });
+  test("noon and overnight shifts submit Vietnam times; midnight-before-start is blocked", async ({
+    page,
+  }) => {
+    const submitted: any[] = [];
+    await page.route("**/api/references", (route) =>
+      route.fulfill({
+        json: {
+          serverTime: "2026-10-24T01:15:00.000Z",
+          warehouses: [{ id, name: "Kho ComsMiu" }],
+          channels: [{ id, name: "Shopee" }],
+          carriers: [{ id, name: "GHN" }],
+          shops: [],
+          shifts: [],
+          rules: [],
+          templates: [],
+          retention: [],
+          settings: {},
+          users: [
+            {
+              id,
+              name: "Quản trị thử nghiệm",
+              email: "admin@example.test",
+              role: "admin",
+              active: true,
+            },
+          ],
+        },
+      }),
+    );
+    await page.route("**/api/shifts", (route) => {
+      submitted.push(route.request().postDataJSON());
+      return route.fulfill({ json: { id } });
+    });
+    await page.goto("/#people");
+    await page.getByLabel("Tên ca", { exact: true }).fill("Ca sáng");
+    await page.getByLabel("Bắt đầu · Ngày", { exact: true }).fill("2026-10-24");
+    await page.getByLabel("Bắt đầu · Giờ", { exact: true }).selectOption("08");
+    await page.getByLabel("Bắt đầu · Phút", { exact: true }).selectOption("15");
+    await page
+      .getByLabel("Kết thúc · Ngày", { exact: true })
+      .fill("2026-10-24");
+    await page.getByLabel("Kết thúc · Giờ", { exact: true }).selectOption("00");
+    await page
+      .getByLabel("Kết thúc · Phút", { exact: true })
+      .selectOption("00");
+    await page.getByRole("button", { name: "Tạo ca làm việc" }).click();
+    await expect(
+      page.getByText(/Kết thúc \(.+\) phải sau bắt đầu/),
+    ).toBeVisible();
+    expect(submitted).toHaveLength(0);
+    await page.getByLabel("Kết thúc · Giờ", { exact: true }).selectOption("12");
+    await page.getByRole("button", { name: "Tạo ca làm việc" }).click();
+    await expect.poll(() => submitted.length).toBe(1);
+    expect(submitted[0]).toMatchObject({
+      startsAt: "2026-10-24T01:15:00.000Z",
+      endsAt: "2026-10-24T05:00:00.000Z",
+    });
+    await expect(
+      page.getByText("Đã tạo ca làm việc", { exact: true }),
+    ).toBeVisible();
+    await page.getByLabel("Tên ca", { exact: true }).fill("Ca qua đêm");
+    await page.getByLabel("Bắt đầu · Giờ", { exact: true }).selectOption("22");
+    await page.getByLabel("Bắt đầu · Phút", { exact: true }).selectOption("00");
+    await page
+      .getByLabel("Kết thúc · Ngày", { exact: true })
+      .fill("2026-10-25");
+    await page.getByLabel("Kết thúc · Giờ", { exact: true }).selectOption("00");
+    await page.getByRole("button", { name: "Tạo ca làm việc" }).click();
+    await expect.poll(() => submitted.length).toBe(2);
+    expect(submitted[1]).toMatchObject({
+      startsAt: "2026-10-24T15:00:00.000Z",
+      endsAt: "2026-10-24T17:00:00.000Z",
+    });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    ).toBe(true);
+    await page.screenshot({
+      path: `test-results/shift-time-${test.info().project.name}.png`,
+      fullPage: true,
+    });
+  });
+});
+
 test("administrator can change a colleague's role through the account screen", async ({
   page,
 }) => {
