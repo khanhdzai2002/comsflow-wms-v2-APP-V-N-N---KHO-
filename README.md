@@ -2,7 +2,9 @@
 
 Dự án mới, tách khỏi `onlineportfolio` trên Railway. Giữ giao diện và các nghiệp vụ xuất kho/đơn hoàn của ComsFlow; thay lớp chạy web, đăng nhập, lưu file và xử lý tác vụ nặng.
 
-**Trạng thái:** mã nguồn chạy và kiểm thử local; chưa cấu hình project Supabase/Cloudflare production. Không tự di chuyển hay xóa dữ liệu Railway.
+**Trạng thái:** mã nguồn chạy và kiểm thử local; chủ dự án đã xác nhận khởi tạo đủ 17 migration trên Supabase. Chưa triển khai web/worker production hoặc chuyển dữ liệu Railway. Repository mới: https://github.com/khanhdzai2002/comsflow-wms-v2-APP-V-N-N---KHO-.
+
+Triển khai không dùng terminal: [hướng dẫn Cloudflare Dashboard](docs/CLOUDFLARE_DASHBOARD.md).
 
 ## Thiết kế
 

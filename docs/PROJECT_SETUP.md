@@ -10,9 +10,11 @@ Thông tin công khai do chủ dự án cung cấp ngày 23/10/2026:
 
 Chủ dự án đã chạy SQL trong Supabase SQL Editor và cung cấp ảnh kết quả `ComsFlow schema ready; Railway data has NOT been imported`, `migrations = 17`. Đây là xác nhận khởi tạo schema từ giao diện của chủ dự án; chưa có kiểm tra trực tiếp qua API/database từ môi trường Codex. Chưa triển khai web/worker hoặc chuyển dữ liệu Railway.
 
-## Tiếp theo: repository riêng
+## Repository riêng
 
-GitHub API vẫn trả `Forbidden` khi Codex thử tạo repository `khanhdzai2002/comsflow-wms-v2`. Chủ dự án có thể tạo repository **Private**, rỗng (không thêm README/.gitignore/license) tại https://github.com/new rồi cung cấp URL. Khi repository đã có và quyền Git phù hợp, có thể đưa mã nguồn hiện tại lên qua Git mà không cần chủ dự án tải ZIP. Không dùng repository/Worker KOC HUB hoặc Railway cũ thay cho dự án mới này.
+Chủ dự án đã tạo repository mới: https://github.com/khanhdzai2002/comsflow-wms-v2-APP-V-N-N---KHO-. Dùng repository này và branch `main` để triển khai. GitHub API vẫn trả `Forbidden` trong môi trường Codex; có thể sử dụng Git transport để đưa mã nguồn lên repo đã được tạo. Không dùng repository/Worker KOC HUB hoặc Railway cũ thay cho dự án mới này.
+
+Tiếp tục bằng [Cloudflare Dashboard](CLOUDFLARE_DASHBOARD.md); không cần tải ZIP hay cài terminal trên máy người dùng.
 
 ## Khởi tạo bằng SQL Editor, không cần terminal
 
