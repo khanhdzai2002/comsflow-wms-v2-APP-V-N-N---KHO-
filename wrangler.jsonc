@@ -11,5 +11,10 @@
     "run_worker_first": ["/api/*", "/health"],
   },
   "observability": { "enabled": true, "head_sampling_rate": 0.1 },
-  "vars": { "DB_MAX_CONNECTIONS": "1", "STORAGE_BUCKET": "comsflow-private" },
+  "vars": {
+    "DB_MAX_CONNECTIONS": "1",
+    "STORAGE_BUCKET": "comsflow-private",
+    "SUPABASE_URL": "https://lyeyjfvxmqruszgfrjze.supabase.co",
+    "SUPABASE_ANON_KEY": "sb_publishable_pCHyGxyD__Am4ZYfRQJOmw_ENNLAV_f",
+  },
 }

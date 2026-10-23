@@ -21,7 +21,8 @@
     "test:e2e": "node --env-file-if-exists=.env.local node_modules/@playwright/test/cli.js test",
     "format": "prettier --write src scripts tests migrations docs *.ts *.json *.jsonc *.mjs README.md",
     "db:migrate-data": "node --env-file-if-exists=.env.local --import tsx scripts/migrate-data.ts",
-    "db:migrate-auth": "node --env-file-if-exists=.env.local --import tsx scripts/migrate-auth.ts"
+    "db:migrate-auth": "node --env-file-if-exists=.env.local --import tsx scripts/migrate-auth.ts",
+    "db:sql": "node scripts/build-supabase-sql.mjs"
   },
   "keywords": [],
   "author": "",

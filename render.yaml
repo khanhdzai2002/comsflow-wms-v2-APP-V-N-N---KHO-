@@ -11,9 +11,9 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: SUPABASE_URL
-        sync: false
+        value: https://lyeyjfvxmqruszgfrjze.supabase.co
       - key: SUPABASE_ANON_KEY
-        sync: false
+        value: sb_publishable_pCHyGxyD__Am4ZYfRQJOmw_ENNLAV_f
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       - key: STORAGE_BUCKET

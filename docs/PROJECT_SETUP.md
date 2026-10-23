@@ -6,11 +6,22 @@ Thông tin công khai do chủ dự án cung cấp ngày 23/10/2026:
 - Project URL: `https://lyeyjfvxmqruszgfrjze.supabase.co`.
 - Dashboard: https://supabase.com/dashboard/project/lyeyjfvxmqruszgfrjze
 
-Đã cập nhật `.env.example` theo project này. Chưa thay `.env.local` hoặc `.dev.vars` đang dùng để kiểm thử local, để tránh ghép nhầm database local với Auth/Storage production.
+Đã nhận Publishable key và cập nhật cấu hình công khai trong `.env.example`, `wrangler.jsonc` và `render.yaml`. Chưa thay `.env.local` hoặc `.dev.vars` đang dùng để kiểm thử local, để tránh ghép nhầm database local với Auth/Storage production.
+
+## Khởi tạo bằng SQL Editor, không cần terminal
+
+1. Mở dashboard project `lyeyjfvxmqruszgfrjze`, chọn **SQL Editor → New query**.
+2. Mở file `supabase/bootstrap.sql` trong mã nguồn (bản tải riêng: `ComsFlow-Supabase-Setup.sql`), sao chép toàn bộ vào ô query.
+3. Kiểm tra đúng project mới rồi bấm **Run**. Script tạo schema và bucket riêng tư; không xóa dữ liệu hay tạo tài khoản quản trị. Nếu có bảng của dự án khác thì script dừng.
+4. Kết quả cuối phải có `ComsFlow schema ready; Railway data has NOT been imported` và `migrations = 17`. Đây chỉ là hoàn tất schema, chưa phải app đã online hoặc dữ liệu cũ đã chuyển.
+
+Script được tạo bằng `npm run db:sql`, kiểm checksum như CLI migration. Chạy lại không tạo bảng trùng; lỗi ở bất kỳ migration nào sẽ rollback cả lượt. Không cần chạy cả SQL Editor và CLI; sau khi chạy SQL Editor, CLI nhận ra các migration đã áp dụng.
+
+Không tạo Admin/nhập dữ liệu vận hành trước khi chuyển dữ liệu cũ theo MIGRATION.md.
 
 ## Thông tin còn cần
 
-1. **Publishable key** (`sb_publishable_...`) hoặc **anon public key**: lấy tại Settings → API Keys, có thể gửi công khai để cấu hình `SUPABASE_ANON_KEY`.
+1. **Publishable key**: đã nhận, không cần gửi lại.
 2. **Service-role key** và **DATABASE_URL** đúng project: chỉ nhập vào secret manager/môi trường server của Cloudflare và worker; không gửi vào chat hoặc Git. DATABASE_URL phải sao chép từ Connect vì hostname, port và kiểu pooler phụ thuộc project. Username trong template là gợi ý transaction/session pooler, không phải kết nối đã kiểm chứng.
 3. Tài khoản/quyền triển khai Cloudflare và nơi chạy background worker. Project URL Supabase không phải URL đăng nhập vào ứng dụng ComsFlow.
 

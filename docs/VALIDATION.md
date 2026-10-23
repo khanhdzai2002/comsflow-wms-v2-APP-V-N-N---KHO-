@@ -31,4 +31,8 @@ Chưa có project Supabase production, tài khoản Cloudflare/worker deployment
 
 GitHub API từ môi trường này trả 403; CI cấu hình sẵn nhưng chưa chạy trên GitHub. Không coi file YAML/dry run là deployment đã thành công.
 
+## Bổ sung khởi tạo qua SQL Editor
+
+Đã cấu hình Project URL và Publishable key do chủ dự án cung cấp trong cấu hình triển khai công khai; không thay secrets/môi trường local và không chạy SQL trên project hosted. Bộ sinh `npm run db:sql` tạo `supabase/bootstrap.sql` từ đủ 17 migration, giữ checksum tương thích CLI. Đã kiểm tra cài mới và chạy lại trên database local riêng; mô phỏng schema `auth.users`/`storage.buckets` xác nhận trigger và bucket private; kiểm tra nhầm project có bảng khác bị chặn và không thay bảng đó. CLI migration tiếp nối installer nhận đủ checksum. Typecheck, lint và Cloudflare dry run đạt sau cấu hình. Các kiểm tra này không thay thế việc chạy trên Supabase hosted thật.
+
 Kết quả gốc Railway được lưu riêng trong `docs/legacy/VALIDATION_RAILWAY.md` để tham khảo lịch sử; không sử dụng làm chứng nhận cho dự án v2.
