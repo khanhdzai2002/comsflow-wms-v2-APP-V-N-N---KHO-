@@ -17,6 +17,8 @@ Thông tin công khai do chủ dự án cung cấp ngày 23/10/2026:
 
 Script được tạo bằng `npm run db:sql`, kiểm checksum như CLI migration. Chạy lại không tạo bảng trùng; lỗi ở bất kỳ migration nào sẽ rollback cả lượt. Không cần chạy cả SQL Editor và CLI; sau khi chạy SQL Editor, CLI nhận ra các migration đã áp dụng.
 
+Nếu không tải được file, dùng khối SQL được gửi trực tiếp trong chat. Bản chụp của khối đó là `supabase/chat-bootstrap.sql`, chứa đủ 17 migration cùng checksum của phiên bản này. Đã kiểm tra cài mới và chạy lại trên database local riêng. Không dán thêm hoặc chạy lẻ phần giữa khối; sao chép toàn bộ từ `BEGIN` đến câu `SELECT` cuối.
+
 Không tạo Admin/nhập dữ liệu vận hành trước khi chuyển dữ liệu cũ theo MIGRATION.md.
 
 ## Thông tin còn cần
