@@ -238,7 +238,10 @@ export function databaseFailure(error: unknown): DatabaseFailure {
       "CONNECTION_CLOSED",
       "CONNECTION_DESTROYED",
       "CONNECTION_ENDED",
-    ].includes(code)
+    ].includes(code) ||
+    /proxy request failed|failed to connect|connection attempt failed|network connection lost|socket closed|connection reset|connection refused/i.test(
+      message,
+    )
   )
     return result(
       "DB_NETWORK_FAILED",

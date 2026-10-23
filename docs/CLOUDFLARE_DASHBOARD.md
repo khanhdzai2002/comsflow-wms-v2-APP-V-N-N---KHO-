@@ -43,3 +43,9 @@ Mở `/health` để kiểm tra runtime và `/api/health` để kiểm tra datab
 Runtime tự bật TLS cho hostname Supabase nếu URI chưa chỉ định TLS; không gửi `statement_timeout` hay tùy chọn ORM làm startup parameter tới Supabase Pooler. `DATABASE_URL` phải dùng URI PostgreSQL đầy đủ, username `postgres.PROJECT_REF` của đúng project, mật khẩu database đã percent-encode khi cần. Hai khóa `DATABASE_URL` và `SUPABASE_SERVICE_ROLE_KEY` phải là runtime **Secret**, không đưa vào bundle hoặc gửi qua chat.
 
 `/api/health` trả 503 kèm `code`, `hint` và mã yêu cầu khi kết nối thất bại; không trả thông báo thô của provider hay URI. `DB_URL_MISSING` nghĩa là thiếu binding runtime; `DB_AUTH_FAILED` yêu cầu kiểm tra username/mật khẩu; `DB_POOLER_USER_INVALID` yêu cầu kiểm tra project trong username; `DB_CONNECT_TIMEOUT` yêu cầu kiểm tra trạng thái project/địa chỉ/cổng; `DB_SCHEMA_INCOMPLETE` yêu cầu kiểm tra đang trỏ đúng project đã cài schema. Không xóa bảng hoặc seed để chữa lỗi kết nối. Trạng thái thành công vẫn là `{"ok":true,"database":"connected"}`.
+
+## Giữ cấu hình runtime qua deployment
+
+`wrangler.jsonc` bật `keep_vars: true` để các Variable do chủ dự án thêm trên dashboard không bị xóa khi Git-triggered deployment chạy. Các public var khai báo trong repository vẫn được cập nhật từ cấu hình. Hai thông tin nhạy cảm `DATABASE_URL` và `SUPABASE_SERVICE_ROLE_KEY` phải dùng kiểu **Secret**, không đổi sang Variable chỉ để giữ cấu hình. Bản sửa không thể tự khôi phục giá trị đã mất; chủ dự án cần thêm lại key bị thiếu bằng dashboard.
+
+Nếu health vẫn báo lỗi chưa nhận dạng, mở Worker → Observability → Logs, theo dõi trực tiếp rồi gọi lại `/api/health`. Tra theo `requestId`; xem trường `runtimeDetails` của log **Database health failed**. Log chỉ lấy error message đã giới hạn độ dài/che credential, không log stack hoặc truy vấn. Không đăng công khai log chưa kiểm tra; không gửi DATABASE_URL/key/mật khẩu.

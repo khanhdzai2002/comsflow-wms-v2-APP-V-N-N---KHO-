@@ -6,7 +6,7 @@
 | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | TypeScript                | `npm run typecheck` đạt                                                                                                       |
 | ESLint                    | `npm run lint` đạt, không warning                                                                                             |
-| Backend và parser         | **231/231**, 15 test files, đạt                                                                                               |
+| Backend và parser         | **244/244**, 16 test files, đạt                                                                                               |
 | Giao diện desktop/mobile  | **6/6** đạt                                                                                                                   |
 | Vite production build     | đạt                                                                                                                           |
 | Node worker bundle        | đạt                                                                                                                           |
@@ -42,3 +42,7 @@ Kết quả gốc Railway được lưu riêng trong `docs/legacy/VALIDATION_RAI
 21 kiểm thử mới xác minh cấu hình runtime, TLS Supabase mặc định, startup parameters tương thích Pooler, username đúng project, mật khẩu mẫu/mã hóa sai, phân loại lỗi và không lộ URI/mật khẩu trong phản hồi hoặc log health. Health kiểm tra ba migration v2 trước khi báo connected. Toàn bộ 229 kiểm thử đạt; typecheck, lint, frontend build, worker build và Wrangler dry-run đạt. Dry-run dùng thư mục cấu hình/log trong /tmp để phù hợp sandbox. Chưa xác nhận nguyên nhân lỗi production hay kết nối tới Pooler hosted thực; cần chủ dự án mở lại /api/health sau deployment.
 
 Bổ sung nhận dạng Supavisor `XX000` lỗi xác thực và lỗi vòng đời I/O Cloudflare; metadata lỗi chỉ dùng exception name trong allowlist và SQLSTATE, có kiểm thử chặn thông tin tùy ý. 231/231 test, typecheck, lint, frontend/worker build và Wrangler dry-run đạt. Chưa có kết quả health hosted xác nhận kết nối.
+
+## Giữ biến runtime và log riêng đã che credential
+
+Xác nhận từ schema/mã nguồn Wrangler rằng keep_vars mặc định false sẽ thay/xóa dashboard Variables; bật true để giữ binding qua deploy. Secret vẫn cần lưu dưới kiểu Secret, không thể khôi phục từ mã nguồn nếu đã mất. Thêm nhận dạng thông báo network gốc của cloudflare:sockets và log riêng giới hạn độ dài, che URI/key/mật khẩu thô và percent-encode, bearer/JWT, giá trị có dấu nháy; không log stack/query hoặc đưa runtimeDetails vào health response. 244/244 test (16 files), typecheck, lint, frontend/worker build và Wrangler dry-run đạt. Chưa có xác nhận hosted SQL kết nối thành công; cần chủ dự án thêm lại service-role Secret và lấy log health thực nếu lỗi còn tiếp diễn.

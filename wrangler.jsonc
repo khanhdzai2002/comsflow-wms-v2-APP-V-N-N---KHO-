@@ -2,6 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "comsflow-wms-v2-app-v-n-n---kho",
   "main": "src/server/worker.ts",
+  "keep_vars": true,
   "compatibility_date": "2026-10-23",
   "compatibility_flags": ["nodejs_compat"],
   "assets": {

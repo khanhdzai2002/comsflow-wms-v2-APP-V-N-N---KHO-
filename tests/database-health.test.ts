@@ -48,3 +48,19 @@ it("preserves the successful health response", async () => {
   expect(response.status).toBe(200);
   expect(await response.json()).toEqual({ ok: true, database: "connected" });
 });
+it("keeps redacted runtime details in private logs rather than public health", async () => {
+  mock.query.mockRejectedValue(
+    new Error("Socket transport rejected " + env.DATABASE_URL),
+  );
+  const response = await health(env);
+  const body = await response.json();
+  expect(body).not.toHaveProperty("runtimeDetails");
+  expect(log).toHaveBeenCalledWith(
+    "Database health failed",
+    expect.objectContaining({
+      requestId: body.requestId,
+      runtimeDetails: { message: "Socket transport rejected [redacted]" },
+    }),
+  );
+  expect(JSON.stringify(log.mock.calls)).not.toContain("dummy-secret");
+});

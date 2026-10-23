@@ -119,3 +119,13 @@ it("limits diagnostic metadata to known exception names and SQLSTATE", () => {
     databaseErrorMetadata({ name: pooler, code: pooler, message: pooler }),
   ).toEqual({ errorType: "Other", sqlState: null });
 });
+
+it.each([
+  "proxy request failed",
+  "failed to connect",
+  "connection attempt failed",
+  "Network connection lost",
+  "Socket closed",
+])("recognizes raw Cloudflare socket failure: %s", (message) => {
+  expect(databaseFailure(new Error(message)).code).toBe("DB_NETWORK_FAILED");
+});

@@ -6,6 +6,7 @@ import {
   databaseErrorMetadata,
 } from "../lib/database-connection";
 import { environment } from "./context";
+import { databaseErrorLog } from "./database-error-log";
 import { AppResponse } from "./http";
 export async function databaseHealth() {
   const env = environment();
@@ -39,6 +40,7 @@ export async function databaseHealth() {
       code: failure.code,
       requestId,
       ...diagnostics,
+      runtimeDetails: databaseErrorLog(error, env),
     });
     return AppResponse.json(
       {
