@@ -8,6 +8,12 @@ Thông tin công khai do chủ dự án cung cấp ngày 23/10/2026:
 
 Đã nhận Publishable key và cập nhật cấu hình công khai trong `.env.example`, `wrangler.jsonc` và `render.yaml`. Chưa thay `.env.local` hoặc `.dev.vars` đang dùng để kiểm thử local, để tránh ghép nhầm database local với Auth/Storage production.
 
+Chủ dự án đã chạy SQL trong Supabase SQL Editor và cung cấp ảnh kết quả `ComsFlow schema ready; Railway data has NOT been imported`, `migrations = 17`. Đây là xác nhận khởi tạo schema từ giao diện của chủ dự án; chưa có kiểm tra trực tiếp qua API/database từ môi trường Codex. Chưa triển khai web/worker hoặc chuyển dữ liệu Railway.
+
+## Tiếp theo: repository riêng
+
+GitHub API vẫn trả `Forbidden` khi Codex thử tạo repository `khanhdzai2002/comsflow-wms-v2`. Chủ dự án có thể tạo repository **Private**, rỗng (không thêm README/.gitignore/license) tại https://github.com/new rồi cung cấp URL. Khi repository đã có và quyền Git phù hợp, có thể đưa mã nguồn hiện tại lên qua Git mà không cần chủ dự án tải ZIP. Không dùng repository/Worker KOC HUB hoặc Railway cũ thay cho dự án mới này.
+
 ## Khởi tạo bằng SQL Editor, không cần terminal
 
 1. Mở dashboard project `lyeyjfvxmqruszgfrjze`, chọn **SQL Editor → New query**.
