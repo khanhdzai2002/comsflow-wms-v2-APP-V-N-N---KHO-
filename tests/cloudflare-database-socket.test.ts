@@ -116,7 +116,11 @@ it("delivers early peer failure after driver attaches error handler", async () =
     connect: () => peer.result,
   });
   const socket = await factory(target);
+  // A graceful TCP close completes the readable stream as well. The driver
+  // installs a data listener before sending StartupMessage.
+  socket.on("data", () => {});
   peer.done.resolve();
+  peer.incoming.close();
   await Promise.resolve();
   const failed = deferred<unknown>();
   socket.on("error", (e) => failed.resolve(e));
@@ -152,4 +156,76 @@ it("does not begin TLS after the TCP deadline has expired", async () => {
   await Promise.resolve();
   expect(peer.writes).toEqual([]);
   expect(peer.result.startTls).not.toHaveBeenCalled();
+});
+
+function postgresError(code: string) {
+  const payload = Buffer.from(
+    `SFATAL\0VFATAL\0C${code}\0Mpassword authentication failed for user "fixture"\0\0`,
+  );
+  const response = Buffer.alloc(payload.length + 5);
+  response[0] = 69;
+  response.writeInt32BE(payload.length + 4, 1);
+  payload.copy(response, 5);
+  return response;
+}
+it.each(["28P01", "XX000"])(
+  "retains final PostgreSQL %s ErrorResponse when transport closes first",
+  async (code) => {
+    const { default: postgres } = await import(
+      new URL("../node_modules/postgres/cf/src/index.js", import.meta.url).href
+    );
+    const peer = raw();
+    let replied = false;
+    peer.result.writable = new WritableStream<Uint8Array>({
+      write() {
+        if (replied) return;
+        replied = true;
+        // This is the reported race: transport closure becomes observable before
+        // the readable stream delivers the server's already-buffered FATAL.
+        peer.done.resolve();
+        peer.incoming.enqueue(postgresError(code));
+        peer.incoming.close();
+      },
+    });
+    const sql = postgres("postgres://fixture:dummy@localhost/fixture_test", {
+      max: 1,
+      prepare: false,
+      ssl: false,
+      connect_timeout: 1,
+      socket: createCloudflareSocketFactory(false, {
+        connect: () => peer.result,
+      }),
+    });
+    try {
+      await expect(sql`select 1`).rejects.toMatchObject({
+        name: "PostgresError",
+        code,
+      });
+    } finally {
+      await sql.end({ timeout: 0 });
+    }
+  },
+);
+it("drains final buffered bytes before EOF and records only byte counts on close", async () => {
+  const peer = raw();
+  const socket = await createCloudflareSocketFactory(false, {
+    connect: () => peer.result,
+  })(target);
+  peer.done.resolve();
+  await Promise.resolve();
+  const chunks: Buffer[] = [];
+  const failed = deferred<unknown>();
+  socket.on("error", (error) => failed.resolve(error));
+  socket.on("data", (bytes) => chunks.push(bytes));
+  socket.write(new Uint8Array([1, 2, 3]));
+  peer.incoming.enqueue(new Uint8Array([82, 0, 0, 0, 8]));
+  peer.incoming.close();
+  const error = await failed.promise;
+  expect(chunks.map((x) => Array.from(x))).toEqual([[82, 0, 0, 0, 8]]);
+  expect(error).toMatchObject({
+    code: "CONNECTION_CLOSED",
+    transportStage: "postgres_response",
+    receivedBytes: 5,
+  });
+  expect(error).not.toHaveProperty("data");
 });

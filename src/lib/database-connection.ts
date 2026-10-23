@@ -291,7 +291,13 @@ function databaseFailureWithoutCause(error: unknown): DatabaseFailure {
 export function databaseErrorMetadata(error: unknown) {
   const record =
     error && typeof error === "object"
-      ? (error as { name?: unknown; code?: unknown })
+      ? (error as {
+          name?: unknown;
+          code?: unknown;
+          transportStage?: unknown;
+          sentBytes?: unknown;
+          receivedBytes?: unknown;
+        })
       : {};
   const knownNames = [
     "Error",
@@ -304,7 +310,27 @@ export function databaseErrorMetadata(error: unknown) {
     "NotSupportedError",
     "OperationError",
   ];
+  const stages = [
+    "tcp_open",
+    "tls_negotiation",
+    "tls_open",
+    "postgres_startup",
+    "postgres_response",
+  ];
+  const safeCount = (value: unknown) =>
+    typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= 0 &&
+    value <= Number.MAX_SAFE_INTEGER;
   return {
+    ...(typeof record.transportStage === "string" &&
+    stages.includes(record.transportStage)
+      ? { transportStage: record.transportStage }
+      : {}),
+    ...(safeCount(record.sentBytes) ? { sentBytes: record.sentBytes } : {}),
+    ...(safeCount(record.receivedBytes)
+      ? { receivedBytes: record.receivedBytes }
+      : {}),
     errorType:
       typeof record.name === "string" && knownNames.includes(record.name)
         ? record.name

@@ -20,7 +20,7 @@ it("explains missing runtime secrets without attempting a query", async () => {
   expect(response.status).toBe(503);
   expect(await response.json()).toMatchObject({
     code: "DB_URL_MISSING",
-    diagnosticVersion: "2026-10-23.5",
+    diagnosticVersion: "2026-10-23.6",
     diagnostics: { phase: "configuration" },
     configuration: { databaseUrlPresent: false, serviceRolePresent: false },
   });
@@ -50,7 +50,7 @@ it("preserves the successful health response", async () => {
   const response = await health(env);
   expect(response.status).toBe(200);
   expect(response.headers.get("X-ComsFlow-Diagnostic-Version")).toBe(
-    "2026-10-23.5",
+    "2026-10-23.6",
   );
   expect(await response.json()).toEqual({ ok: true, database: "connected" });
 });

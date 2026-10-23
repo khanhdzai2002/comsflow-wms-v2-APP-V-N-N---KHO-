@@ -16,11 +16,16 @@ type Connect = (
 type Target = { host: string[]; port: number[] };
 const failure = (code: string, message: string) =>
   Object.assign(new Error(message), { code });
-const closedError = () =>
-  failure(
-    "CONNECTION_CLOSED",
-    "Database socket closed before the operation completed",
-  );
+function tagged(error: unknown, details: object) {
+  if (error && typeof error === "object") {
+    try {
+      return Object.assign(error, details);
+    } catch {
+      /* Preserve frozen provider errors. */
+    }
+  }
+  return error;
+}
 
 // postgres's socket hook receives an already-connected transport. TLS is owned
 // here, so the caller must pass ssl:false to postgres after selecting this hook.
@@ -40,6 +45,8 @@ export function createCloudflareSocketFactory(
     const host = target.host[0],
       port = Number(target.port[0]);
     let current: RuntimeSocket | undefined;
+    let transportStage: "tcp_open" | "tls_negotiation" | "tls_open" =
+      "tcp_open";
     let expired = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const checkDeadline = () => {
@@ -66,6 +73,7 @@ export function createCloudflareSocketFactory(
           await current.opened;
           checkDeadline();
           if (secure) {
+            transportStage = "tls_negotiation";
             const plaintext = current;
             const writer = plaintext.writable.getWriter();
             const reader = plaintext.readable.getReader();
@@ -86,6 +94,7 @@ export function createCloudflareSocketFactory(
               reader.releaseLock();
             }
             checkDeadline();
+            transportStage = "tls_open";
             current = plaintext.startTls({ expectedServerHostname: host });
             current.closed.catch(() => undefined);
             await current.opened;
@@ -107,7 +116,7 @@ export function createCloudflareSocketFactory(
       ]);
     } catch (error) {
       void current?.close().catch(() => undefined);
-      throw error;
+      throw tagged(error, { transportStage });
     } finally {
       clearTimeout(timer);
     }
@@ -123,6 +132,8 @@ class CloudflareDatabaseSocket extends EventEmitter {
   private closing = false;
   private finished = false;
   private pendingError?: unknown;
+  private sentBytes = 0;
+  private receivedBytes = 0;
   constructor(
     private readonly raw: RuntimeSocket,
     readonly host: string,
@@ -134,9 +145,27 @@ class CloudflareDatabaseSocket extends EventEmitter {
       if (event === "data") queueMicrotask(() => this.read());
       if (event === "error") queueMicrotask(() => this.deliverFailure());
     });
-    raw.closed.then(
-      () => this.finish(this.closing ? undefined : closedError()),
-      (error) => this.finish(error),
+    // Socket.closed may settle before the readable stream has delivered its
+    // buffered final PostgreSQL ErrorResponse or rows. Normal close is only a
+    // transport signal: drain readable through EOF before reporting it.
+    raw.closed.catch((error) => this.finish(error));
+  }
+  private metadata() {
+    return {
+      transportStage: this.receivedBytes
+        ? "postgres_response"
+        : "postgres_startup",
+      sentBytes: this.sentBytes,
+      receivedBytes: this.receivedBytes,
+    };
+  }
+  private closedError() {
+    return tagged(
+      failure(
+        "CONNECTION_CLOSED",
+        "Database socket closed before the operation completed",
+      ),
+      this.metadata(),
     );
   }
   private deliverFailure() {
@@ -153,7 +182,7 @@ class CloudflareDatabaseSocket extends EventEmitter {
     this.readyState = "closed";
     if (error) {
       void this.raw.close().catch(() => undefined);
-      this.pendingError = error;
+      this.pendingError = tagged(error, this.metadata());
       this.deliverFailure();
     } else this.emit("close", false);
   }
@@ -164,9 +193,10 @@ class CloudflareDatabaseSocket extends EventEmitter {
       while (!this.finished) {
         const next = await this.reader.read();
         if (next.done) {
-          this.finish(this.closing ? undefined : closedError());
+          this.finish(this.closing ? undefined : this.closedError());
           break;
         }
+        this.receivedBytes += next.value.byteLength;
         this.emit("data", Buffer.from(next.value));
       }
     } catch (error) {
@@ -182,6 +212,7 @@ class CloudflareDatabaseSocket extends EventEmitter {
     this.writes = this.writes
       .then(() => this.writer.write(bytes))
       .then(() => {
+        this.sentBytes += bytes.byteLength;
         callback?.();
       })
       .catch((error) => {

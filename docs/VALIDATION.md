@@ -6,7 +6,7 @@
 | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | TypeScript                | `npm run typecheck` đạt                                                                                                       |
 | ESLint                    | `npm run lint` đạt, không warning                                                                                             |
-| Backend và parser         | **257/257**, 18 test files, đạt                                                                                               |
+| Backend và parser         | **261/261**, 18 test files, đạt                                                                                               |
 | Giao diện desktop/mobile  | **6/6** đạt                                                                                                                   |
 | Vite production build     | đạt                                                                                                                           |
 | Node worker bundle        | đạt                                                                                                                           |
@@ -58,3 +58,9 @@ Log hosted do chủ dự án cung cấp xác nhận lỗi `Too many subrequests 
 Adapter mới dùng hook socket chính thức của driver và cloudflare:sockets trực tiếp, hoàn tất TLS trước khi trao stream, chỉ theo dõi socket hiện tại, tối đa 2 transport/request và deadline connect/TLS 10 giây. Supabase vẫn dùng TLS có xác thực chứng chỉ; không tăng quota hay tắt xác thực. Node request có budget riêng; background Node không đổi driver.
 
 Kiểm chứng sau thay đổi: 257/257 test (18 files), typecheck, lint, Vite build, worker build và Wrangler dry-run đạt. /api/health của Worker đầy đủ trong Wrangler local trả 200 connected, header diagnostic version .5. Actual Miniflare/workerd qua PostgreSQL local và STARTTLS proxy: SELECT1 và transaction có tham số (mã giữ số 0 đầu, số lượng 42) đều trả 200, mỗi request TLS chỉ 1 TCP connection. Trusted local CA hoạt động; bỏ CA bị chặn UnknownIssuer với 1 TCP, xác thực không bị vô hiệu hóa. Các kết quả local không thay thế kiểm tra health/login trên Supabase hosted sau deployment.
+
+## Giữ phản hồi PostgreSQL khi socket đóng bình thường
+
+Tái hiện bằng driver postgres/cf thực và RuntimeSocket fixture: raw.closed resolve trước khi ErrorResponse đã buffer được đọc làm lỗi28P01 bị thay bằng CONNECTION_CLOSED. Adapter nay đợi readable EOF khi socket đóng bình thường; raw.closed reject vẫn ngắt nhanh. Hai test28P01/XX000 giữ nguyên SQLSTATE, thêm test byte cuối và metadata chỉ có stage/counters. Không coi race này là bằng chứng mật khẩu production sai.
+
+261/261 test (18 files), typecheck, lint, frontend/worker build và Wrangler dry-run đạt. FullWorker health local trả connected/header .6. Actualworkerd qua TLSproxytrustedCA vẫn đọc transaction có tham số, giữ mã000123456789 và quantity42, một TCP mỗi request. HostedSupabase vẫn cần chủ dự án gọihealthbản .6 để xác minh.

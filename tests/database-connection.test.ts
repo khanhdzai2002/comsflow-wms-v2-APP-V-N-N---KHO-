@@ -157,3 +157,27 @@ it("keeps transport TLS required when the socket owns the handshake", () => {
       .secure,
   ).toBe(false);
 });
+
+it("exposes only allowlisted transport stage and numeric byte counts", () => {
+  expect(
+    databaseErrorMetadata({
+      name: "Error",
+      transportStage: "postgres_startup",
+      sentBytes: 64,
+      receivedBytes: 0,
+    }),
+  ).toMatchObject({
+    transportStage: "postgres_startup",
+    sentBytes: 64,
+    receivedBytes: 0,
+  });
+  const result = databaseErrorMetadata({
+    transportStage: pooler,
+    sentBytes: pooler,
+    receivedBytes: -1,
+  });
+  expect(result).not.toHaveProperty("transportStage");
+  expect(result).not.toHaveProperty("sentBytes");
+  expect(result).not.toHaveProperty("receivedBytes");
+  expect(JSON.stringify(result)).not.toContain("dummy-password");
+});
