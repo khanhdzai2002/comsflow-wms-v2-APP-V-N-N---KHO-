@@ -5,6 +5,12 @@
   "keep_vars": true,
   "compatibility_date": "2026-10-23",
   "compatibility_flags": ["nodejs_compat"],
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "8c06ca81531944b784e94ae3f3c404b4",
+    },
+  ],
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",

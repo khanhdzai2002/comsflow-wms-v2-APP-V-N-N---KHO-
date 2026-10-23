@@ -78,3 +78,11 @@ Cả Session và Transaction pooler hosted do chủ dự án kiểm tra đều �
 ## Kiểm tra script tài khoản chẩn đoán
 
 `scripts/sql/create-connection-check.sql` được chạy trên container PostgreSQL17 riêng, không chạm cluster dev hay hosted. Xác nhận: thiếu marker bị chặn và không tạo role; sau marker đúng, password32ký tựhex được sinh trên server; tài khoản mới đăng nhập được, CONNECT=true, không SELECT được bảng app; chạy lại bị chặn và verifierpassword không đổi. Kết quả password không in vào tooloutput/Git. Container kiểm thử được dừng/xóa. Đây không phải xác nhận credential/đường mạng Supabase thật; SQL cần chủproject chạy riêng. Không thay đổi runtime hoặc các migration gốc.
+
+### Hyperdrive resource and runtime-role permissions (2026-10-23)
+
+The owner supplied the saved Hyperdrive ID in a dashboard screenshot; the Direct origin uses the freshly generated limited LOGIN role and query caching is disabled. The actual resource binding is now tracked in Wrangler config. Hosted health/login have not yet been confirmed.
+
+The permission script was checked in a separate disposable PostgreSQL17 container on database `comsflow_permissions_test` using all 17 migrations. Only the database-name guard was substituted locally. Verified missing-schema guard, repeatable grants, reads of all 48 application tables and migration markers under the NOINHERIT role, transactional insert/update/read/delete through RLS, append-only audit trigger rejection, browser-role denial, and absence of CREATE/admin/migration-write privileges. No production data or credentials were accessed.
+
+For the binding change: typecheck, lint, all 265 backend tests (19 files), frontend build, worker build, and Wrangler deployment dry-run passed. The dry-run lists `env.HYPERDRIVE` with the owner-provided ID. This does not execute the permission script in Supabase or confirm Cloudflare production rollout.
