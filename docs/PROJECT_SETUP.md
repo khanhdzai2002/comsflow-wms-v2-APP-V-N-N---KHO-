@@ -14,7 +14,7 @@ Chủ dự án đã chạy SQL trong Supabase SQL Editor và cung cấp ảnh k�
 
 Chủ dự án đã tạo repository mới: https://github.com/khanhdzai2002/comsflow-wms-v2-APP-V-N-N---KHO-. Dùng repository này và branch `main` để triển khai. GitHub API vẫn trả `Forbidden` trong môi trường Codex; có thể sử dụng Git transport để đưa mã nguồn lên repo đã được tạo. Không dùng repository/Worker KOC HUB hoặc Railway cũ thay cho dự án mới này.
 
-Kiểm tra sau khi nhận URL: `git ls-remote` thành công và repo đang rỗng, nhưng `git push -u origin main` bị GitHub từ chối với `Permission ... denied`/HTTP 403. Origin local đã trỏ đúng repo mới; mã nguồn chưa được đẩy lên, branch `main` trên GitHub chưa được xác nhận tồn tại. Cần cấp quyền ghi cho kết nối Codex/OpenAI đối với repo mới rồi thử lại; không dùng token hoặc mật khẩu gửi trong chat để xử lý.
+Sau khi chủ dự án cấp quyền cho repo mới, `git push -u origin main` đã thành công. Đã xác nhận SHA của `refs/heads/main` trên GitHub khớp bản local. GitHub Actions API vẫn trả `Forbidden`, nên chưa xác minh kết quả CI trên GitHub. Không có Cloudflare deployment credentials trong môi trường hiện tại; chưa triển khai web/worker hoặc chuyển dữ liệu Railway. Không cần gửi token hoặc mật khẩu vào chat.
 
 Tiếp tục bằng [Cloudflare Dashboard](CLOUDFLARE_DASHBOARD.md); không cần tải ZIP hay cài terminal trên máy người dùng.
 
