@@ -115,3 +115,51 @@ test("return import remains directly identifiable as its own selected tab", asyn
     page.getByRole("tab", { name: "Nhập dữ liệu đơn hoàn", exact: true }),
   ).toHaveAttribute("aria-selected", "true");
 });
+test("first-admin setup explains disabled status and can recheck after configuration", async ({
+  page,
+}) => {
+  let state = "missing";
+  await page.route("**/api/auth/me", (route) =>
+    route.fulfill({ json: { user: null } }),
+  );
+  await page.route("**/api/auth/setup-status", (route) => {
+    if (state === "error")
+      return route.fulfill({
+        status: 503,
+        json: { error: "Database tạm thời không khả dụng" },
+      });
+    return route.fulfill({
+      json:
+        state === "ready"
+          ? { available: true, code: "SETUP_READY" }
+          : {
+              available: false,
+              code: "SETUP_TOKEN_MISSING",
+              message:
+                "Chưa bật tạo Admin. Thêm Secret SETUP_TOKEN trong Cloudflare.",
+            },
+    });
+  });
+  await page.goto("/");
+  await expect(page.getByText(/Chưa bật tạo Admin/)).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Tạo Admin đầu tiên" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Đăng nhập", exact: true }),
+  ).toBeEnabled();
+  state = "error";
+  await page.getByRole("button", { name: "Kiểm tra lại thiết lập" }).click();
+  await expect(page.getByRole("alert")).toContainText(
+    "Chưa kiểm tra được trạng thái tạo Admin",
+  );
+  state = "ready";
+  await page.getByRole("button", { name: "Kiểm tra lại thiết lập" }).click();
+  await page.getByRole("button", { name: "Tạo Admin đầu tiên" }).click();
+  await expect(page.getByLabel("Mã thiết lập", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText(
+      "Dùng mã thiết lập đã lưu trong Cloudflare để khởi tạo hệ thống.",
+    ),
+  ).toBeVisible();
+});

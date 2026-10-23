@@ -109,7 +109,11 @@ import {
   splitLabelText,
   shopeeLabelText,
 } from "./pdf-fixture";
-import { bootstrapAdmin, setupAvailable } from "../src/lib/bootstrap";
+import {
+  bootstrapAdmin,
+  setupAvailable,
+  setupStatus,
+} from "../src/lib/bootstrap";
 
 // Never run destructive fixtures against the development or production DB.
 const testUrl = process.env.TEST_DATABASE_URL;
@@ -377,6 +381,24 @@ describe("Thiết lập Admin lần đầu qua web", () => {
     email: "FIRST@TEST.EXAMPLE",
     password: "IntegrationOnlyPassword!2026",
   };
+  it("phân biệt thiếu mã, mã sai độ dài và tài khoản đã có mà không lộ bí mật", async () => {
+    for (const value of [undefined, ""])
+      expect(await setupStatus(value)).toMatchObject({
+        available: false,
+        code: "SETUP_TOKEN_MISSING",
+      });
+    for (const value of ["short", "x".repeat(257)])
+      expect(await setupStatus(value)).toMatchObject({
+        available: false,
+        code: "SETUP_TOKEN_INVALID",
+      });
+    const status = await setupStatus(secret);
+    expect(status).toMatchObject({ available: false, code: "USERS_EXIST" });
+    const serialized = JSON.stringify(status);
+    expect(serialized).not.toContain(secret);
+    expect(serialized).not.toContain(admin.email);
+    expect((await sql`SELECT count(*)::int count FROM users`)[0].count).toBe(3);
+  });
   it("đóng nếu thiếu mã hoặc database đã có bất kỳ tài khoản nào", async () => {
     expect(await setupAvailable(undefined)).toBe(false);
     expect(await setupAvailable("short")).toBe(false);
@@ -392,6 +414,10 @@ describe("Thiết lập Admin lần đầu qua web", () => {
   it("tạo Admin, hash mật khẩu, tạo session và tự đóng sau thành công", async () => {
     await sql`TRUNCATE users CASCADE`;
     expect(await setupAvailable(secret)).toBe(true);
+    expect(await setupStatus(secret)).toMatchObject({
+      available: true,
+      code: "SETUP_READY",
+    });
     const result = await bootstrapAdmin(payload, secret);
     expect(result.user.role).toBe("admin");
     expect(result.user.email).toBe("first@test.example");

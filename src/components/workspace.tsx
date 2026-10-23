@@ -169,7 +169,14 @@ export function Workspace() {
   );
 }
 function Login({ onLogin }: { onLogin: (u: User) => void }) {
-  const { data: setup } = useData<{ available: boolean }>("auth/setup-status");
+  const {
+    data: setup,
+    error: setupError,
+    loading: setupLoading,
+    reload: reloadSetup,
+  } = useData<{ available: boolean; code?: string; message?: string }>(
+    "auth/setup-status",
+  );
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [setupToken, setSetupToken] = useState("");
@@ -205,7 +212,7 @@ function Login({ onLogin }: { onLogin: (u: User) => void }) {
           <h2>{creating ? "Tạo Admin đầu tiên" : "Đăng nhập hệ thống"}</h2>
           <p className="muted">
             {creating
-              ? "Dùng mã thiết lập đã lưu trong Railway để khởi tạo hệ thống."
+              ? "Dùng mã thiết lập đã lưu trong Cloudflare để khởi tạo hệ thống."
               : "Sử dụng tài khoản được quản trị viên cấp."}
           </p>
           <form
@@ -306,7 +313,32 @@ function Login({ onLogin }: { onLogin: (u: User) => void }) {
               <ArrowUpRight size={18} />
             </button>
           </form>
-          {setup?.available && (
+          {setupLoading && <p className="muted">Đang kiểm tra thiết lập…</p>}
+          {setupError && (
+            <div className="notice" role="alert">
+              Chưa kiểm tra được trạng thái tạo Admin: {setupError}
+              <button
+                className="text-button"
+                type="button"
+                onClick={() => void reloadSetup()}
+              >
+                Kiểm tra lại thiết lập
+              </button>
+            </div>
+          )}
+          {!setupError && setup && !setup.available && setup.message && (
+            <div className="notice" role="status">
+              {setup.message}
+              <button
+                className="text-button"
+                type="button"
+                onClick={() => void reloadSetup()}
+              >
+                Kiểm tra lại thiết lập
+              </button>
+            </div>
+          )}
+          {!setupError && setup?.available && (
             <div className="notice">
               {creating
                 ? "Chỉ tạo được một lần khi hệ thống chưa có tài khoản."

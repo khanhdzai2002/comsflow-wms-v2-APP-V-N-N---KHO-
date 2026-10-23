@@ -43,7 +43,7 @@ import {
 } from "@/lib/source-manifests";
 import { startOwnShift, assignShift } from "@/lib/shifts";
 import { verifyRequestOrigin } from "@/lib/request-origin";
-import { bootstrapAdmin, setupAvailable } from "@/lib/bootstrap";
+import { bootstrapAdmin, setupStatus } from "@/lib/bootstrap";
 
 import {
   previewCleanup,
@@ -124,7 +124,7 @@ export async function dispatch(req: NextRequest, trustedUser?: User) {
     });
   }
   if (path === "auth/setup-status" && req.method === "GET") {
-    return json({ available: await setupAvailable(environment().SETUP_TOKEN) });
+    return json(await setupStatus(environment().SETUP_TOKEN));
   }
   if (path === "auth/setup" && req.method === "POST") {
     const result = await bootstrapAdmin(

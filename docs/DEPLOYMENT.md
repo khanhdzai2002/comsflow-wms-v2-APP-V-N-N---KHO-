@@ -1,6 +1,6 @@
 # Triển khai dự án mới
 
-Chưa có deployment production từ repository này. Cần một project Supabase mới, một Cloudflare Worker mới và một dịch vụ Node worker riêng. Không đổi cấu hình/database/domain Railway cũ. Không gửi mật khẩu, service key hoặc DATABASE_URL vào chat/Git.
+Web/API được triển khai trên Cloudflare Worker riêng; chủ dự án đã báo `/api/health` trả `{"ok":true,"database":"connected"}` sau khi gắn Hyperdrive ngày 2026-10-23. Chưa xác nhận đăng nhập, dịch vụ Node xử lý file hoặc di chuyển dữ liệu Railway. Không đổi cấu hình/database/domain Railway cũ. Không gửi mật khẩu, service key hoặc DATABASE_URL vào chat/Git.
 
 ## 1. Tạo Supabase
 
@@ -82,4 +82,15 @@ Bản `.6` đợi đọc hết stream tới EOF trước khi báo socket đóng 
 
 ## Đường kết nối Hyperdrive
 
-Mã đã hỗ trợ binding HYPERDRIVE ưu tiên URI trực tiếp, xem [HYPERDRIVE.md](HYPERDRIVE.md). Resource chưa được tạo/gắn tự động: cần chủ tài khoản tạo và cung cấp ID không bí mật để đưa vào cấu hình Git. Query caching phải tắt. Origin vẫn là Supabase, không chuyển dữ liệu.
+Binding HYPERDRIVE của resource `comsflow-wms-db` đã được lưu trong cấu hình Git, xem [HYPERDRIVE.md](HYPERDRIVE.md). Query caching phải tắt. Origin vẫn là Supabase; việc gắn resource không chuyển dữ liệu Railway.
+
+## Không thấy nút Tạo Admin đầu tiên
+
+Mở `/api/auth/setup-status`. Phản hồi giữ `available` và thêm `code`, `message` để phân biệt các trường hợp; không trả mã thiết lập, email, mật khẩu hoặc danh sách tài khoản. Phản hồi không được cache.
+
+- `SETUP_TOKEN_MISSING`: thêm runtime **Secret** `SETUP_TOKEN` trên đúng Worker/môi trường Production rồi Deploy.
+- `SETUP_TOKEN_INVALID`: sửa giá trị thành mã riêng dài 32–256 ký tự, lưu riêng và Deploy; không gửi qua chat.
+- `USERS_EXIST`: đã có ít nhất một tài khoản, kể cả tài khoản bị khóa. Không xóa users hoặc bỏ kiểm tra để tạo admin lại. Kiểm tra tài khoản hiện có và làm quy trình khôi phục có xác thực chủ sở hữu.
+- `SETUP_READY`: nút Tạo Admin đầu tiên được bật. Nhập mã đã lưu riêng cùng email/name/password của quản trị viên. Sau khi tạo thành công, bỏ Secret `SETUP_TOKEN` và Deploy lại.
+
+Nếu endpoint chỉ trả `available` thì bản mới chưa phục vụ request này. Kiểm tra build theo tên commit, chờ rollout rồi tải lại. Màn hình đăng nhập hiển thị lý do chưa mở thiết lập và có nút kiểm tra lại; lỗi API được hiển thị thay vì làm nút biến mất im lặng. Người đã có tài khoản vẫn đăng nhập bình thường.

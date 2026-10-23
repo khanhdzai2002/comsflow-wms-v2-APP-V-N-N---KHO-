@@ -13,10 +13,37 @@ const input = z.object({
 const enabled = (secret?: string) =>
   Boolean(secret && secret.length >= 32 && secret.length <= 256);
 const digest = (s: string) => createHash("sha256").update(s).digest();
-export async function setupAvailable(secret?: string) {
-  if (!enabled(secret)) return false;
+export async function setupStatus(secret?: string) {
+  if (!secret)
+    return {
+      available: false,
+      code: "SETUP_TOKEN_MISSING",
+      message:
+        "Chưa bật tạo Admin. Thêm Secret SETUP_TOKEN trong Cloudflare với mã riêng dài 32–256 ký tự, rồi Deploy.",
+    };
+  if (!enabled(secret))
+    return {
+      available: false,
+      code: "SETUP_TOKEN_INVALID",
+      message:
+        "Mã thiết lập chưa hợp lệ. Cập nhật Secret SETUP_TOKEN trong Cloudflare thành mã dài 32–256 ký tự, rồi Deploy.",
+    };
   const [r] = await db()`SELECT EXISTS(SELECT 1 FROM users) present`;
-  return !r.present;
+  return r.present
+    ? {
+        available: false,
+        code: "USERS_EXIST",
+        message:
+          "Hệ thống đã có tài khoản nên đã đóng tạo Admin đầu tiên. Đăng nhập bằng tài khoản đã tạo hoặc liên hệ quản trị viên để khôi phục quyền truy cập.",
+      }
+    : {
+        available: true,
+        code: "SETUP_READY",
+        message: "Hệ thống chưa có tài khoản. Có thể tạo Admin đầu tiên.",
+      };
+}
+export async function setupAvailable(secret?: string) {
+  return (await setupStatus(secret)).available;
 }
 export async function bootstrapAdmin(raw: unknown, secret?: string) {
   if (!enabled(secret))
