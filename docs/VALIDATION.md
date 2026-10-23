@@ -6,7 +6,7 @@
 | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | TypeScript                | `npm run typecheck` đạt                                                                                                       |
 | ESLint                    | `npm run lint` đạt, không warning                                                                                             |
-| Backend và parser         | **229/229**, 15 test files, đạt                                                                                               |
+| Backend và parser         | **231/231**, 15 test files, đạt                                                                                               |
 | Giao diện desktop/mobile  | **6/6** đạt                                                                                                                   |
 | Vite production build     | đạt                                                                                                                           |
 | Node worker bundle        | đạt                                                                                                                           |
@@ -40,3 +40,5 @@ Kết quả gốc Railway được lưu riêng trong `docs/legacy/VALIDATION_RAI
 ## Bổ sung chẩn đoán kết nối database
 
 21 kiểm thử mới xác minh cấu hình runtime, TLS Supabase mặc định, startup parameters tương thích Pooler, username đúng project, mật khẩu mẫu/mã hóa sai, phân loại lỗi và không lộ URI/mật khẩu trong phản hồi hoặc log health. Health kiểm tra ba migration v2 trước khi báo connected. Toàn bộ 229 kiểm thử đạt; typecheck, lint, frontend build, worker build và Wrangler dry-run đạt. Dry-run dùng thư mục cấu hình/log trong /tmp để phù hợp sandbox. Chưa xác nhận nguyên nhân lỗi production hay kết nối tới Pooler hosted thực; cần chủ dự án mở lại /api/health sau deployment.
+
+Bổ sung nhận dạng Supavisor `XX000` lỗi xác thực và lỗi vòng đời I/O Cloudflare; metadata lỗi chỉ dùng exception name trong allowlist và SQLSTATE, có kiểm thử chặn thông tin tùy ý. 231/231 test, typecheck, lint, frontend/worker build và Wrangler dry-run đạt. Chưa có kết quả health hosted xác nhận kết nối.

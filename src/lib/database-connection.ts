@@ -159,10 +159,29 @@ export function databaseFailure(error: unknown): DatabaseFailure {
       "DB_POOLER_USER_INVALID",
       "Username hoặc project trong URI Pooler chưa đúng. Sao chép lại URI từ Connect của đúng project.",
     );
-  if (["28P01", "28000"].includes(code))
+  if (
+    ["28P01", "28000"].includes(code) ||
+    /password authentication failed|authentication error|invalid password|wrong password/i.test(
+      message,
+    )
+  )
     return result(
       "DB_AUTH_FAILED",
       "Database từ chối username hoặc mật khẩu. Kiểm tra mật khẩu database và mã hóa ký tự đặc biệt; không dùng API key thay mật khẩu.",
+    );
+  if (code === "SASL_SIGNATURE_MISMATCH")
+    return result(
+      "DB_AUTH_SIGNATURE_FAILED",
+      "Xác thực SCRAM chưa hoàn tất. Kiểm tra URI Pooler của đúng project và mật khẩu database; không tắt TLS.",
+    );
+  if (
+    /cannot perform i\/o|different request|global scope|disallowed operation/i.test(
+      message,
+    )
+  )
+    return result(
+      "DB_RUNTIME_IO_FAILED",
+      "Cloudflare từ chối thao tác kết nối trong request. Cần kiểm tra adapter/runtime của bản triển khai; đổi mật khẩu không xử lý được lỗi này.",
     );
   if (code === "3D000")
     return result(
@@ -248,4 +267,34 @@ function databaseFailureWithoutCause(error: unknown): DatabaseFailure {
     };
   const record = error as { code?: unknown; message?: unknown };
   return databaseFailure({ code: record.code, message: record.message });
+}
+
+// Only known exception types and five-character SQLSTATE codes are public.
+// Never include provider messages, stack traces or arbitrary error properties.
+export function databaseErrorMetadata(error: unknown) {
+  const record =
+    error && typeof error === "object"
+      ? (error as { name?: unknown; code?: unknown })
+      : {};
+  const knownNames = [
+    "Error",
+    "TypeError",
+    "RangeError",
+    "ReferenceError",
+    "SyntaxError",
+    "PostgresError",
+    "DOMException",
+    "NotSupportedError",
+    "OperationError",
+  ];
+  return {
+    errorType:
+      typeof record.name === "string" && knownNames.includes(record.name)
+        ? record.name
+        : "Other",
+    sqlState:
+      typeof record.code === "string" && /^[0-9A-Z]{5}$/.test(record.code)
+        ? record.code
+        : null,
+  };
 }

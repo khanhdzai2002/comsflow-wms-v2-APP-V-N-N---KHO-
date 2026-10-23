@@ -3,6 +3,7 @@ import { db } from "../lib/db";
 import {
   databaseConnection,
   databaseFailure,
+  databaseErrorMetadata,
 } from "../lib/database-connection";
 import { environment } from "./context";
 import { AppResponse } from "./http";
@@ -33,13 +34,19 @@ export async function databaseHealth() {
   } catch (error) {
     const failure = databaseFailure(error),
       requestId = randomUUID();
-    console.error("Database health failed", { code: failure.code, requestId });
+    const diagnostics = databaseErrorMetadata(error);
+    console.error("Database health failed", {
+      code: failure.code,
+      requestId,
+      ...diagnostics,
+    });
     return AppResponse.json(
       {
         ok: false,
         database: "unavailable",
         ...failure,
         requestId,
+        diagnostics,
         configuration: {
           databaseUrlPresent: !!(
             env.DATABASE_URL?.trim() || env.HYPERDRIVE?.connectionString

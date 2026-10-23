@@ -3,6 +3,7 @@ import postgres from "postgres";
 import {
   databaseConnection,
   databaseFailure,
+  databaseErrorMetadata,
 } from "../src/lib/database-connection";
 const pooler =
   "postgresql://postgres.example:dummy-password@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres";
@@ -90,4 +91,31 @@ it("recognizes pooler startup and nested network failures", () => {
   expect(databaseFailure({ cause: { code: "ENOTFOUND" } }).code).toBe(
     "DB_DNS_FAILED",
   );
+});
+
+it("recognizes Supavisor generic SQLSTATE authentication errors", () => {
+  expect(
+    databaseFailure({
+      code: "XX000",
+      message:
+        'Authentication error, reason: password authentication failed for user "postgres"',
+    }).code,
+  ).toBe("DB_AUTH_FAILED");
+  expect(
+    databaseFailure({
+      message: "Cannot perform I/O on behalf of a different request",
+    }).code,
+  ).toBe("DB_RUNTIME_IO_FAILED");
+});
+it("limits diagnostic metadata to known exception names and SQLSTATE", () => {
+  expect(
+    databaseErrorMetadata({
+      name: "PostgresError",
+      code: "XX000",
+      message: pooler,
+    }),
+  ).toEqual({ errorType: "PostgresError", sqlState: "XX000" });
+  expect(
+    databaseErrorMetadata({ name: pooler, code: pooler, message: pooler }),
+  ).toEqual({ errorType: "Other", sqlState: null });
 });
