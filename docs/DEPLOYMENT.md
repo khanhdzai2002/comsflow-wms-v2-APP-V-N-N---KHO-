@@ -94,3 +94,11 @@ Mở `/api/auth/setup-status`. Phản hồi giữ `available` và thêm `code`, 
 - `SETUP_READY`: nút Tạo Admin đầu tiên được bật. Nhập mã đã lưu riêng cùng email/name/password của quản trị viên. Sau khi tạo thành công, bỏ Secret `SETUP_TOKEN` và Deploy lại.
 
 Nếu endpoint chỉ trả `available` thì bản mới chưa phục vụ request này. Kiểm tra build theo tên commit, chờ rollout rồi tải lại. Màn hình đăng nhập hiển thị lý do chưa mở thiết lập và có nút kiểm tra lại; lỗi API được hiển thị thay vì làm nút biến mất im lặng. Người đã có tài khoản vẫn đăng nhập bình thường.
+
+### Tạo Admin bằng dashboard khi chưa cập nhật được bản web
+
+Chủ project có thể dùng Supabase Dashboard để tạo Admin đầu tiên, không phụ thuộc SETUP_TOKEN hoặc bản web mới. Trong **Authentication → Users → Add user → Create new user**, đặt email/password riêng và bật **Auto Confirm User**. Trigger migration15 tạo hồ sơ chưa active và role staff; đây là trạng thái chờ cấp quyền, không phải lỗi password. Không gửi password qua chat hoặc đưa vào SQL.
+
+Mở `scripts/sql/provision-first-admin.sql`, thay đúng một placeholder `THAY_EMAIL_VUA_TAO` bằng email đã tạo, chạy trong SQL Editor project `lyeyjfvxmqruszgfrjze`. Script chỉ cấp admin/active cho hồ sơ đã liên kết với đúng Auth user và email đã xác nhận; giữ nguyên ID, Auth credential và dữ liệu nghiệp vụ. Role/active trong database vẫn là nguồn quyền có hiệu lực. Không chỉnh trực tiếp bảng auth, không cấp quyền qua metadata do browser kiểm soát, không tạo endpoint tự nâng quyền.
+
+Script dùng cùng advisory lock với bootstrap, ghi audit trước/sau khi thay quyền, chạy lại không ghi trùng audit. Nếu đã có một Admin active khác, email chưa xác nhận hoặc hồ sơ chưa liên kết thì dừng và rollback. Không xóa tài khoản để vượt kiểm tra. Sau thông báo `Admin ready`, đăng nhập bằng email/password đã đặt trong Authentication; nút tạo Admin đầu tiên lúc này đóng là bình thường.
