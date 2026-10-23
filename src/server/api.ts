@@ -8,6 +8,7 @@ import {
 import { salesFields } from "@/lib/sales-fields";
 import { AppRequest as NextRequest, AppResponse as NextResponse } from "./http";
 import { environment, requestContext } from "./context";
+import { databaseHealth } from "./database-health";
 import { supabase } from "../lib/supabase";
 import { z } from "zod";
 
@@ -114,11 +115,8 @@ async function exportData(
 }
 export async function dispatch(req: NextRequest, trustedUser?: User) {
   const path = req.nextUrl.pathname.replace(/^\/api\//, "");
+  if (path === "health" && req.method === "GET") return databaseHealth();
   const sql = db();
-  if (path === "health" && req.method === "GET") {
-    await sql`SELECT 1 FROM schema_migrations LIMIT 1`;
-    return json({ ok: true, database: "connected" });
-  }
   // All cookie-authenticated mutations require same-origin, independent of CORS.
   if (req.method !== "GET" && !trustedUser) {
     verifyRequestOrigin(req, {

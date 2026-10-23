@@ -11,13 +11,13 @@ Supabase đã được chủ dự án xác nhận có 17 migration. Mã nguồn 
 
 ## 2. Build và deploy
 
-| Trường | Giá trị |
-|---|---|
-| Build command | `npm run build` |
-| Deploy command | `npx wrangler deploy` |
-| Root directory | Gốc repository; để mặc định nếu không dùng thư mục con |
-| Production branch | `main` |
-| Node.js | 24, hoặc phiên bản phù hợp engines trong package.json |
+| Trường            | Giá trị                                                |
+| ----------------- | ------------------------------------------------------ |
+| Build command     | `npm run build`                                        |
+| Deploy command    | `npx wrangler deploy`                                  |
+| Root directory    | Gốc repository; để mặc định nếu không dùng thư mục con |
+| Production branch | `main`                                                 |
+| Node.js           | 24, hoặc phiên bản phù hợp engines trong package.json  |
 
 Deploy này chỉ tạo web/API. URL Worker do Cloudflare cấp sau khi triển khai; đây mới là URL mở ComsFlow, không phải Project URL Supabase. Chưa đăng nhập/vận hành được nếu chưa cấu hình đủ runtime secrets và tài khoản.
 
@@ -37,3 +37,9 @@ Mở `/health` để kiểm tra runtime và `/api/health` để kiểm tra datab
 - Nếu giữ dữ liệu Railway: làm theo `MIGRATION.md`, đối soát và liên kết Supabase Auth trước khi tạo Admin mới. Không chạy seed, xóa bảng hoặc reset database thật.
 - Deploy worker nền riêng theo `DEPLOYMENT.md`/`Dockerfile.worker`; cần secret server trên host worker. Chưa có worker thì PDF/Excel/báo cáo sẽ chờ trong hàng đợi. Render blueprint là tài nguyên có phí, cần xem giá trước khi tạo.
 - Chỉ thông báo hệ thống sẵn sàng khi đã đăng nhập, thử quét, có heartbeat worker, đọc/lưu PDF, tải báo cáo và kiểm tra backup. Tính đến lúc viết tài liệu này chưa có xác nhận deployment production.
+
+## Chẩn đoán kết nối Pooler
+
+Runtime tự bật TLS cho hostname Supabase nếu URI chưa chỉ định TLS; không gửi `statement_timeout` hay tùy chọn ORM làm startup parameter tới Supabase Pooler. `DATABASE_URL` phải dùng URI PostgreSQL đầy đủ, username `postgres.PROJECT_REF` của đúng project, mật khẩu database đã percent-encode khi cần. Hai khóa `DATABASE_URL` và `SUPABASE_SERVICE_ROLE_KEY` phải là runtime **Secret**, không đưa vào bundle hoặc gửi qua chat.
+
+`/api/health` trả 503 kèm `code`, `hint` và mã yêu cầu khi kết nối thất bại; không trả thông báo thô của provider hay URI. `DB_URL_MISSING` nghĩa là thiếu binding runtime; `DB_AUTH_FAILED` yêu cầu kiểm tra username/mật khẩu; `DB_POOLER_USER_INVALID` yêu cầu kiểm tra project trong username; `DB_CONNECT_TIMEOUT` yêu cầu kiểm tra trạng thái project/địa chỉ/cổng; `DB_SCHEMA_INCOMPLETE` yêu cầu kiểm tra đang trỏ đúng project đã cài schema. Không xóa bảng hoặc seed để chữa lỗi kết nối. Trạng thái thành công vẫn là `{"ok":true,"database":"connected"}`.

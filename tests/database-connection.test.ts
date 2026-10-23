@@ -1,0 +1,93 @@
+import { expect, it } from "vitest";
+import postgres from "postgres";
+import {
+  databaseConnection,
+  databaseFailure,
+} from "../src/lib/database-connection";
+const pooler =
+  "postgresql://postgres.example:dummy-password@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres";
+it("enables TLS and removes unsupported pooler startup options", async () => {
+  const config = databaseConnection({
+    DATABASE_URL:
+      pooler +
+      "?pgbouncer=true&connection_limit=1&pool_timeout=10&schema=public&statement_timeout=123",
+    SUPABASE_URL: "https://example.supabase.co",
+  });
+  expect(config.options.ssl).toBe("require");
+  expect(config.url).not.toMatch(
+    /pgbouncer|connection_limit|pool_timeout|schema|statement_timeout/,
+  );
+  const sql = postgres(config.url, config.options);
+  expect(sql.options.connection).not.toHaveProperty("statement_timeout");
+  expect(sql.options.prepare).toBe(false);
+  await sql.end();
+});
+it("preserves explicit TLS mode and local statement timeout", () => {
+  expect(
+    databaseConnection({ DATABASE_URL: pooler + "?sslmode=verify-full" }).url,
+  ).toContain("sslmode=verify-full");
+  const local = databaseConnection({
+    DATABASE_URL: "postgres://test:dummy@localhost/test",
+  });
+  expect(local.options).not.toHaveProperty("ssl");
+  expect(local.options.connection.statement_timeout).toBe(30000);
+  expect(databaseConnection({ DATABASE_URL: '"' + pooler + '"' }).url).toBe(
+    pooler,
+  );
+});
+it.each([
+  [undefined, "DB_URL_MISSING"],
+  ["https://example.supabase.co", "DB_URL_INVALID"],
+  [
+    pooler.replace("dummy-password", "[YOUR-PASSWORD]"),
+    "DB_PASSWORD_PLACEHOLDER",
+  ],
+  [pooler.replace("dummy-password", "bad%ZZ"), "DB_PASSWORD_ENCODING"],
+  [pooler.replace("postgres.example", "postgres"), "DB_POOLER_USER_INVALID"],
+  [pooler + "?sslmode=disable", "DB_TLS_REQUIRED"],
+])("rejects invalid runtime configuration safely", (url, code) => {
+  try {
+    databaseConnection({ DATABASE_URL: url });
+    throw Error("expected validation failure");
+  } catch (error) {
+    expect(databaseFailure(error).code).toBe(code);
+    expect(JSON.stringify(databaseFailure(error))).not.toContain(
+      "dummy-password",
+    );
+  }
+});
+it("rejects a different Supabase project", () => {
+  expect(() =>
+    databaseConnection({
+      DATABASE_URL: pooler,
+      SUPABASE_URL: "https://other.supabase.co",
+    }),
+  ).toThrow(/PROJECT_REF/);
+});
+it.each([
+  ["28P01", "DB_AUTH_FAILED"],
+  ["ENOTFOUND", "DB_DNS_FAILED"],
+  ["CERT_HAS_EXPIRED", "DB_TLS_FAILED"],
+  ["42P01", "DB_SCHEMA_MISSING"],
+  ["CONNECT_TIMEOUT", "DB_CONNECT_TIMEOUT"],
+  ["ECONNREFUSED", "DB_NETWORK_FAILED"],
+  ["UNKNOWN", "DB_CONNECTION_FAILED"],
+])(
+  "classifies failures without disclosing provider details",
+  (code, expected) => {
+    const result = databaseFailure({ code, message: "failure " + pooler });
+    expect(result.code).toBe(expected);
+    expect(JSON.stringify(result)).not.toContain(pooler);
+    expect(JSON.stringify(result)).not.toContain("dummy-password");
+  },
+);
+it("recognizes pooler startup and nested network failures", () => {
+  expect(
+    databaseFailure({
+      message: "unsupported startup parameter: statement_timeout",
+    }).code,
+  ).toBe("DB_POOLER_PARAMETER_UNSUPPORTED");
+  expect(databaseFailure({ cause: { code: "ENOTFOUND" } }).code).toBe(
+    "DB_DNS_FAILED",
+  );
+});

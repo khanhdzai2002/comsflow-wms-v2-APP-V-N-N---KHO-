@@ -1,4 +1,5 @@
 import postgres from "postgres";
+import { databaseConnection } from "./database-connection";
 import { environment, requestContext } from "../server/context";
 const globalDb = globalThis as unknown as {
   comsflowDb?: ReturnType<typeof postgres>;
@@ -6,23 +7,21 @@ const globalDb = globalThis as unknown as {
 export function db() {
   const state = requestContext.getStore();
   const env = environment();
-  const url = env.HYPERDRIVE?.connectionString || env.DATABASE_URL;
-  if (!url) throw new Error("DATABASE_URL chưa được cấu hình");
   if (state?.sql) return state.sql;
+  const config = databaseConnection(
+    env,
+    state ? "comsflow-web" : "comsflow-worker",
+  );
   const create = () =>
-    postgres(url, {
+    postgres(config.url, {
+      ...config.options,
       max: Math.min(
         4,
         Math.max(1, Number(env.DB_MAX_CONNECTIONS) || (state ? 1 : 2)),
       ),
-      prepare: false,
       connect_timeout: 10,
       idle_timeout: 20,
       max_lifetime: 300,
-      connection: {
-        application_name: state ? "comsflow-web" : "comsflow-worker",
-        statement_timeout: 30000,
-      },
     });
   if (state) return (state.sql = create());
   return (globalDb.comsflowDb ??= create());
