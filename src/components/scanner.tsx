@@ -518,7 +518,7 @@ export function Scanner({
             ) : (
               <p>
                 {result.hint
-                  ? `Gợi ý tiền tố: ${result.hint.carrier} / ${result.hint.channel ?? "Chưa xác định"}. Chưa xác minh, cần đối soát.`
+                  ? `Gợi ý ${result.hint.source === "format" ? "mẫu mã" : "tiền tố"}: ${result.hint.carrier} / ${result.hint.channel ?? "Chưa xác định"}. Chưa xác minh, cần đối soát.`
                   : "Không suy đoán thông tin đơn khi chưa có dữ liệu nguồn."}
               </p>
             )}

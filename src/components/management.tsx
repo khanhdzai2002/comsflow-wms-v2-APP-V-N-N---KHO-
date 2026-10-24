@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import type { User } from "@/lib/db";
 import { formatTime } from "@/lib/domain";
+import { carrierFormats } from "@/lib/carrier-formats";
 import { shiftInterval } from "@/lib/shift-time";
 import { ShiftDateTime } from "./shift-date-time";
 import { fields, fieldLabels } from "@/lib/import-fields";
@@ -1090,6 +1091,22 @@ export function Configuration({ refs, user }: { refs: Row; user: User }) {
               <p className="muted">
                 Chỉ dùng gợi ý đối soát. Không xác nhận dữ liệu sàn từ tiền tố.
               </p>
+              <details>
+                <summary>
+                  Mẫu mã nhận diện tự động cho xuất kho và hoàn kho
+                </summary>
+                <p className="small-note">
+                  Hãng đã xác minh và tên hãng hợp lệ trong file được ưu tiên.
+                  Quy tắc tiền tố do quản trị cấu hình được xét trước các mẫu
+                  bên dưới; tiền tố đã tắt không tự bật lại bằng mẫu mặc định.
+                  Mã chưa khớp giữ ở nhóm cần đối soát.
+                </p>
+                {carrierFormats.map((f) => (
+                  <p key={f.name}>
+                    {f.name}: {f.description}
+                  </p>
+                ))}
+              </details>
               <form
                 key={editingRule?.id ?? "new-rule"}
                 onSubmit={async (e) => {

@@ -206,7 +206,8 @@ export function ReturnOverview({
                         <MetricHelp label="Tỷ trọng hãng vận chuyển">
                           Số yêu cầu của nhóm hãng chia tổng yêu cầu theo bộ
                           lọc. Mỗi yêu cầu thuộc một nhóm; nhiều hãng vào nhóm
-                          cần đối chiếu, chưa có mã vào nhóm chưa xác định.
+                          cần đối chiếu. Chưa có mã hoàn và có mã chưa nhận diện
+                          được hãng là hai nhóm riêng.
                         </MetricHelp>
                       </span>
                     </th>
@@ -306,8 +307,9 @@ export function ReturnOverview({
           )}
           <p className="small-note return-panel-note">
             Mỗi yêu cầu chỉ thuộc một nhóm. Hồ sơ có nhiều hãng nằm trong “Nhiều
-            hãng / cần đối chiếu”; hồ sơ chưa có vận đơn vẫn được tính ở “Chưa
-            xác định”.
+            hãng / cần đối chiếu”. “Chưa nhận diện hãng” là đã có mã nhưng chưa
+            xác định được hãng; “Chưa có mã vận đơn hoàn” là chưa có mã để theo
+            dõi.
           </p>
         </section>
         <section className="card return-priority-panel">

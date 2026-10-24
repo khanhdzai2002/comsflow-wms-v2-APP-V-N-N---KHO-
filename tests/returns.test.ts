@@ -603,7 +603,9 @@ describe("Tổng quan hoàn và danh sách mở từ chỉ số", () => {
       (await returnList(admin, { carrier: "mixed" })).rows.map((r) => r.id),
     ).toEqual([byName["RETURN-0"].id]);
     expect(
-      (await returnList(admin, { carrier: "unknown" })).rows.map((r) => r.id),
+      (await returnList(admin, { carrier: "no_tracking" })).rows.map(
+        (r) => r.id,
+      ),
     ).toContain(byName["RETURN-3"].id);
     for (const [state, key] of [
       ["received", "received"],

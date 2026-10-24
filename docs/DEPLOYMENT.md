@@ -117,4 +117,12 @@ Script dùng cùng advisory lock với bootstrap, ghi audit trước/sau khi tha
 
 Xem [OPERATIONS_REVIEW.md](OPERATIONS_REVIEW.md). Bản `2026-10-23.operations-1` có thiết lập danh mục được ghi audit trong app, lựa chọn kho theo catalog mới tải, đổi quyền nhân viên và tổng quan hoàn với các nhóm hãng mở được danh sách. Với database đã có tài khoản, dùng nút **Thiết lập danh mục cơ bản** hoặc **Cấu hình hệ thống → Bổ sung danh mục cơ bản**, không chạy seed demo/installer để sửa lỗi mở ca. Không cần migration mới hay đổi Hyperdrive/secret cho bản này.
 
-`/health` trả thêm appRevision, API trả header X-ComsFlow-App-Revision và references trả trạng thái processor. Không coi build Ready hoặc database connected là xác nhận processor hoạt động. Dịch vụ đọc file vẫn cần Node worker riêng theo mục3; thiếu heartbeat thì PDF/Excel/report sẽ chưa hoàn tất, job được giữ lại. Bản web không tự mua hay tạo background service.
+`/health` trả thêm appRevision, API trả header X-ComsFlow-App-Revision và references trả trạng thái processor. Không coi build Ready hoặc database connected là xác nhận processor hoạt động. Excel, báo cáo và luồng legacy vẫn cần Node worker riêng theo mục3; PDF xuất kho trực tiếp và CSV hoàn TikTok không phụ thuộc heartbeat. Bản web không tự mua hay tạo background service.
+
+## Nhận diện hãng vận đơn hoàn
+
+Bản `2026-10-24.return-carriers-1` dùng chung service nhận diện với gợi ý xuất kho. Ưu tiên hãng đã xác minh → tên hãng/alias hợp lệ trong file → tiền tố đang bật do Admin cấu hình (dài nhất trước) → mẫu mã đầy đủ. Mặc định: J&T 85/86 và đủ 12 số; SPXVN + 11 số + 1 chữ; BEST TTVN + 8–16 số; GHN VNGH + 11 số hoặc G + 7 chữ/số; Viettel Post VTPVN + 10 số. Không áp các mẫu chưa có bằng chứng cho GHTK/Ninja hoặc suy ra hãng chỉ vì sàn. Quy tắc tắt không bị fallback mẫu bật lại. Có thể xem mẫu tại Cấu hình hệ thống; tiền tố tùy chỉnh vẫn được giữ.
+
+Không cần SQL/migration hoặc nhập lại file: dashboard, bộ lọc, danh sách và chi tiết tự phân giải hãng cho dữ liệu cũ chưa có hãng, trong giao dịch đọc. Nhập file mới lưu nguồn nhận diện; hãng đã xác minh thủ công và lịch sử nhận/kiểm/khiếu nại được giữ. Nếu danh mục thiếu hãng, Admin bổ sung hãng/tên gọi tại Cấu hình hệ thống. Không tự tạo ID hãng khi chỉ đọc dữ liệu.
+
+Hai nhóm có ý nghĩa riêng: `unknown` = có mã nhưng chưa nhận diện hãng; `no_tracking` = không có kiện/mã hoàn active. Mở nhóm ở dashboard dùng carrierScope=exclusive để số đếm khớp danh sách. Nhóm nhiều hãng/known+unknown vẫn riêng. Mã chỉ có vài ký tự được giữ để đối chiếu, không đoán hãng từ tiền tố mặc định.

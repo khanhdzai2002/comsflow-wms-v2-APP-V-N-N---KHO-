@@ -1,6 +1,7 @@
 import { warehouseIdSchema } from "./domain";
 import { createHash, randomUUID } from "node:crypto";
 import { carrierCatalog, identifyCarrier } from "./carriers";
+import { groupReturnCarriers, returnCarrierGroups } from "./return-carriers";
 import {
   mergeReturnSource,
   sourceDigest,
@@ -159,16 +160,53 @@ export async function previewReturns(
       };
     });
   const catalog = await carrierCatalog(sql);
-  const carrierChecks = file.rows
-    .filter((r) => r.tracking)
-    .map((r) => ({
-      request: r.request,
-      tracking: r.tracking,
-      ...identifyCarrier(catalog, r.tracking, r.sourceCarrier),
-    }));
+  const manualParcels = existing.length
+    ? await sql`SELECT r.external_id,p.tracking_code,p.carrier_id FROM return_parcels p JOIN return_cases r ON r.id=p.case_id WHERE p.case_id=ANY(${existing.map((r) => r.id)}::uuid[]) AND p.active AND p.carrier_origin='manual'`
+    : [];
+  const manualByCode = new Map(
+    manualParcels.map((p) => [
+      JSON.stringify([p.external_id, p.tracking_code]),
+      p.carrier_id,
+    ]),
+  );
+  const checkedRows = file.rows.map((r) => ({
+    row: r.row,
+    request: r.request,
+    tracking: r.tracking,
+    ...identifyCarrier(
+      catalog,
+      r.tracking,
+      r.sourceCarrier,
+      manualByCode.get(JSON.stringify([r.request, r.tracking])) ?? null,
+    ),
+  }));
+  const carrierChecks = checkedRows.filter((r) => r.tracking);
+  const carrierSummaryMap = new Map<
+    string,
+    { id: string; name: string; requests: number }
+  >();
+  for (const group of groupReturnCarriers(
+    checkedRows.map((r) => ({
+      caseId: r.request,
+      hasTracking: !!r.tracking,
+      carrierId: r.carrierId,
+      carrier: r.carrier,
+    })),
+  )) {
+    const summary = carrierSummaryMap.get(group.carrier_id) ?? {
+      id: group.carrier_id,
+      name: group.carrier,
+      requests: 0,
+    };
+    summary.requests++;
+    carrierSummaryMap.set(group.carrier_id, summary);
+  }
   return {
     ...file,
     carrierChecks,
+    carrierSummary: [...carrierSummaryMap.values()].sort(
+      (a, b) => b.requests - a.requests || a.name.localeCompare(b.name),
+    ),
     updateSummary: {
       new: file.summary.requests - changes.length,
       existing: changes.length,
@@ -489,24 +527,14 @@ export async function returnList(user: User, raw: unknown, all = false) {
           p.carrier_origin === "manual" ? p.carrier_id : null,
         ),
       }));
-      const carrierGroups = new Map<string, Set<string>>();
-      for (const p of parcelIdentities) {
-        const ids = carrierGroups.get(p.case_id) ?? new Set<string>();
-        ids.add(p.carrierId ?? "unknown");
-        carrierGroups.set(p.case_id, ids);
-      }
-      const identities = [...carrierGroups].map(([case_id, ids]) => {
-        const carrier_id = ids.size > 1 ? "mixed" : [...ids][0];
-        return {
-          case_id,
-          carrier_id,
-          carrier:
-            carrier_id === "mixed"
-              ? "Nhiều hãng / cần đối chiếu"
-              : (catalog.carriers.find((c) => c.id === carrier_id)?.name ??
-                "Chưa xác định"),
-        };
-      });
+      const identities = groupReturnCarriers(
+        parcelIdentities.map((p) => ({
+          caseId: p.case_id,
+          hasTracking: true,
+          carrierId: p.carrierId,
+          carrier: p.carrier,
+        })),
+      );
       const exclusiveCases = identities
         .filter((p) => p.carrier_id === f.carrier)
         .map((p) => p.case_id);
@@ -586,7 +614,7 @@ export async function returnList(user: User, raw: unknown, all = false) {
  AND (${!f.carrier}
  OR (${f.carrierScope === "exclusive" || f.carrier === "mixed"} AND b.id=ANY(${exclusiveCases}::uuid[]))
  OR (${f.carrierScope !== "exclusive" && f.carrier !== "mixed"} AND b.id=ANY(${carrierCases}::uuid[]))
- OR (${f.carrier === "unknown"} AND b.parcels=0))
+ OR (${f.carrier === "no_tracking"} AND b.parcels=0))
  AND (${!f.reason} OR b.id=ANY(${reasonCases}::uuid[]))
  AND (${!f.state} OR b.processing_status=${f.state} OR (b.inspection_status=${f.state} AND (b.inspection_status<>'full' OR NOT b.inspection_stale))
  OR (${f.state === "unreceived"} AND b.received=0 AND NOT b.no_physical_return AND b.platform_substatus<>'Request Canceled')
@@ -627,7 +655,7 @@ export async function returnList(user: User, raw: unknown, all = false) {
       const carriers =
         await sql`WITH b AS (${base}), filtered AS(SELECT * FROM b WHERE ${filter}),
  identities AS (SELECT * FROM jsonb_to_recordset(${sql.json(identities)}) AS x(case_id uuid,carrier_id text,carrier text))
- SELECT coalesce(i.carrier_id,'unknown') id,coalesce(i.carrier,'Chưa xác định') name,
+ SELECT coalesce(i.carrier_id,'no_tracking') id,coalesce(i.carrier,${returnCarrierGroups.no_tracking}) name,
  count(*)::int requests,count(*) FILTER(WHERE b.received>0)::int received,
  count(*) FILTER(WHERE b.received=0 AND NOT b.no_physical_return AND b.platform_substatus<>'Request Canceled')::int unreceived,
  count(*) FILTER(WHERE b.processing_status='lost')::int lost,
@@ -640,7 +668,7 @@ export async function returnList(user: User, raw: unknown, all = false) {
         r.return_tracking = parcels.map((p) => p.tracking_code).join(", ");
         r.return_carriers =
           [...new Set(parcels.map((p) => p.carrier))].join(", ") ||
-          "Chưa xác định";
+          returnCarrierGroups.no_tracking;
         r.carrier_conflict = parcels.some((p) => p.conflict);
       }
       return {
@@ -720,7 +748,8 @@ export async function receiveReturn(user: User, raw: unknown) {
         410,
         "Lượt nhận hoàn cũ đã được dọn. Không ghi nhận lại bằng mã yêu cầu cũ.",
       );
-    const identification = identifyCarrier(await carrierCatalog(tx), code);
+    const catalog = await carrierCatalog(tx);
+    let identification = identifyCarrier(catalog, code);
     const [shift] =
       await tx`SELECT s.id FROM work_shifts s JOIN shift_members m ON m.shift_id=s.id WHERE s.id=${d.shiftId} AND s.warehouse_id=${d.warehouseId} AND m.user_id=${user.id} AND s.starts_at<=clock_timestamp() AND s.ends_at>clock_timestamp()`;
     if (!shift)
@@ -756,6 +785,12 @@ export async function receiveReturn(user: User, raw: unknown) {
         p.warehouse_id !== d.warehouseId
       )
         throw new AppError(409, "Kiện đã thay đổi, cần tìm lại");
+      identification = identifyCarrier(
+        catalog,
+        code,
+        p.source_carrier,
+        p.carrier_origin === "manual" ? p.carrier_id : null,
+      );
       if (p.received_at) {
         const [employee] =
           await tx`SELECT name FROM users WHERE id=${p.received_by}`;

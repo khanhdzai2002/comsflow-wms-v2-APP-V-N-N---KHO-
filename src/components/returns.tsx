@@ -366,7 +366,8 @@ export function ReturnsModule({
                     onChange={(e) => change("carrier", e.target.value)}
                   >
                     <option value="">Tất cả hãng</option>
-                    <option value="unknown">Chưa xác định</option>
+                    <option value="unknown">Chưa nhận diện hãng</option>
+                    <option value="no_tracking">Chưa có mã vận đơn hoàn</option>
                     <option value="mixed">Nhiều hãng / cần đối chiếu</option>
                     <OptionList rows={refs.carriers} />
                   </select>
@@ -1070,6 +1071,40 @@ function ReturnImporter({
               </div>
             ))}
           </div>
+          {!!preview.carrierSummary?.length && (
+            <section className="return-carrier-preview">
+              <h3>Nhận diện hãng từ file hoàn</h3>
+              <p className="small-note">
+                Ưu tiên hãng đã xác minh, tên hãng trong file, quy tắc tiền tố
+                đã cấu hình, rồi mẫu mã đầy đủ. Mỗi yêu cầu thuộc một nhóm; đơn
+                chưa có mã hoàn được tách riêng.
+              </p>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Hãng / nhóm đối soát</th>
+                      <th>Yêu cầu hoàn</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.carrierSummary.map((c: Row) => (
+                      <tr key={c.id}>
+                        <td>{c.name}</td>
+                        <td>{c.requests}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {preview.carrierChecks?.some((c: Row) => !c.carrierId) && (
+                <p className="notice warning">
+                  Có mã chưa nhận diện được hãng. Vẫn giữ nguyên mã nguồn; kiểm
+                  tra mã đầy đủ hoặc xác minh hãng trong chi tiết đơn hoàn.
+                </p>
+              )}
+            </section>
+          )}
           {!!preview.changes?.length && (
             <details>
               <summary>
@@ -1179,6 +1214,7 @@ function ReturnImporter({
                     <th>Yêu cầu / đơn</th>
                     <th>SKU / SL</th>
                     <th>Vận đơn</th>
+                    <th>Hãng nhận diện</th>
                     <th>Cảnh báo</th>
                   </tr>
                 </thead>
@@ -1194,6 +1230,13 @@ function ReturnImporter({
                         {r.sku} · {r.quantity}
                       </td>
                       <td>{r.tracking || "Chờ bổ sung"}</td>
+                      <td>
+                        {r.tracking
+                          ? (preview.carrierChecks?.find(
+                              (c: Row) => c.row === r.row,
+                            )?.carrier ?? "Chưa nhận diện hãng")
+                          : "Chưa có mã vận đơn hoàn"}
+                      </td>
                       <td>{r.warnings.join("; ")}</td>
                     </tr>
                   ))}

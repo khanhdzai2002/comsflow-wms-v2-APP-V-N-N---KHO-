@@ -317,7 +317,17 @@ test("TikTok CSV imports without a processor and safely resumes after a lost com
     existingRequests: 0,
     conflicts: [],
     changes: [],
-    carrierChecks: [],
+    carrierChecks: [
+      {
+        row: 2,
+        request: parsed.rows[0].request,
+        tracking: parsed.rows[0].tracking,
+        carrierId: id,
+        carrier: "J&T Express",
+        origin: "format",
+      },
+    ],
+    carrierSummary: [{ id, name: "J&T Express", requests: 1 }],
     updateSummary: {
       new: 1,
       existing: 0,
@@ -409,6 +419,10 @@ test("TikTok CSV imports without a processor and safely resumes after a lost com
     name: /Xác nhận lưu 1 yêu cầu hoàn/,
   });
   await expect(save).toBeEnabled();
+  await expect(page.locator(".return-carrier-preview")).toContainText(
+    "J&T Express",
+  );
+  await expect(page.locator(".return-carrier-preview")).toContainText("1");
   const importMetrics = page.locator(".import-review .source-counts");
   await expect(
     importMetrics.getByRole("button", { name: /^Giải thích:/ }),
@@ -806,10 +820,17 @@ test("return overview opens matching carrier cases and permits processing withou
           },
           {
             id: "unknown",
-            name: "Chưa xác định",
-            requests: 4,
-            received: 3,
+            name: "Chưa nhận diện hãng",
+            requests: 1,
+            received: 0,
             unreceived: 1,
+          },
+          {
+            id: "no_tracking",
+            name: "Chưa có mã vận đơn hoàn",
+            requests: 3,
+            received: 0,
+            unreceived: 0,
           },
         ],
         trend: [{ day: "2026-10-21", requests: 10, received: 6 }],
@@ -824,6 +845,16 @@ test("return overview opens matching carrier cases and permits processing withou
     page.getByRole("button", { name: /^Đơn hoàn đã về kho/ }),
   ).toBeVisible();
   await expect(page.getByRole("button", { name: /^Đơn bị mất/ })).toBeVisible();
+  await expect(
+    page
+      .locator(".return-carrier-name")
+      .filter({ hasText: "Chưa nhận diện hãng" }),
+  ).toHaveCount(1);
+  await expect(
+    page
+      .locator(".return-carrier-name")
+      .filter({ hasText: "Chưa có mã vận đơn hoàn" }),
+  ).toHaveCount(1);
   const kpis = page.locator(".return-overview-kpis");
   await expect(kpis.getByRole("button", { name: /^Giải thích:/ })).toHaveCount(
     6,
@@ -907,6 +938,11 @@ test("return overview opens matching carrier cases and permits processing withou
     .getByRole("tab", { name: "Dashboard đơn hoàn", exact: true })
     .click();
   await expect.poll(() => queries.at(-1)?.get("state")).toBeNull();
+  await page
+    .getByRole("button", { name: "Chưa có mã vận đơn hoàn", exact: true })
+    .click();
+  await expect.poll(() => queries.at(-1)?.get("carrier")).toBe("no_tracking");
+  expect(queries.at(-1)?.get("carrierScope")).toBe("exclusive");
 });
 
 test("both scan stations open a valid assigned shift after catalogs arrive", async ({

@@ -12,6 +12,7 @@ import {
   receiveReturn,
   inspectReturn,
   updateReturn,
+  editReturnParcel,
 } from "../src/lib/returns";
 import {
   parseSalesFile,
@@ -131,6 +132,145 @@ beforeEach(async () => {
 });
 afterAll(() => sql.end());
 describe("Đơn hoàn V2: nguồn, nhận diện và tỷ lệ thật", () => {
+  it("imports file carrier formats and instantly groups legacy null identities without rewriting receipts", async () => {
+    await sql`INSERT INTO shipping_carriers(name) VALUES('GHN'),('Viettel Post'),('BEST Express')`;
+    const tracking = [
+      "854160000001",
+      "862000000002",
+      "VTPVN1234567890",
+      "VNGH12345678901",
+      "SPXVN00000000001A",
+      "TTVN1234567890",
+      "8554",
+      "",
+    ];
+    const rows = tracking.map((code, i) =>
+      row({
+        "Return Order ID": String(1234567890123456700n + BigInt(i)),
+        "Return Logistics Tracking ID": code,
+        "Return Logistics Provider": "",
+      }),
+    );
+    const parsed = await parse(rows);
+    const preview = await previewReturns(admin, parsed, context());
+    expect(preview.carrierSummary.reduce((n, c) => n + c.requests, 0)).toBe(8);
+    expect(
+      preview.carrierSummary.find((c) => c.name === "J&T Express")?.requests,
+    ).toBe(2);
+    expect(
+      preview.carrierSummary.find((c) => c.id === "unknown")?.requests,
+    ).toBe(1);
+    expect(
+      preview.carrierSummary.find((c) => c.id === "no_tracking")?.requests,
+    ).toBe(1);
+    await commitReturns(admin, parsed, "formats.csv", context());
+    expect(
+      (
+        await sql`SELECT carrier_origin FROM return_parcels WHERE tracking_code='854160000001'`
+      )[0].carrier_origin,
+    ).toBe("format");
+    await receiveReturn(admin, {
+      code: tracking[0],
+      warehouseId: warehouse,
+      shiftId: shift,
+      requestId: crypto.randomUUID(),
+      method: "manual",
+    });
+    await sql`UPDATE return_parcels SET carrier_id=NULL,carrier_origin='unknown'`;
+    const before =
+      await sql`SELECT id,received_at,received_by FROM return_parcels ORDER BY id`;
+    const data = await returnList(admin, {});
+    expect(data.totals.received).toBe(1);
+    expect(data.carriers).toHaveLength(7);
+    expect(new Set(data.carriers.map((c) => c.id)).size).toBe(7);
+    expect(new Set(data.carriers.map((c) => c.name)).size).toBe(7);
+    for (const group of data.carriers) {
+      expect(
+        (
+          await returnList(admin, {
+            carrier: group.id,
+            carrierScope: "exclusive",
+          })
+        ).totals.requests,
+      ).toBe(group.requests);
+      expect(
+        (
+          await returnList(admin, {
+            carrier: group.id,
+            carrierScope: "exclusive",
+            state: "received",
+          })
+        ).totals.requests,
+      ).toBe(group.received);
+    }
+    expect(
+      (await returnList(admin, { carrier: "unknown" })).rows[0].return_tracking,
+    ).toBe("8554");
+    expect(
+      (await returnList(admin, { carrier: "no_tracking" })).rows[0]
+        .return_tracking,
+    ).toBe("");
+    expect(
+      await sql`SELECT id,received_at,received_by FROM return_parcels ORDER BY id`,
+    ).toEqual(before);
+    expect(
+      (
+        await sql`SELECT count(*)::int n FROM return_parcels WHERE carrier_id IS NULL`
+      )[0].n,
+    ).toBe(7);
+  });
+  it("manual carrier verification wins in preview, reimport, dashboard, detail and receiving", async () => {
+    const rows = [
+      row({
+        "Return Logistics Tracking ID": "854160000001",
+        "Return Logistics Provider": "",
+      }),
+    ];
+    await addReturns(rows);
+    const record = (await returnList(admin, {})).rows[0];
+    const detail = await returnDetail(admin, record.id);
+    await editReturnParcel(admin, {
+      caseId: record.id,
+      id: detail.parcels[0].id,
+      carrierId: spx,
+      reason: "Đối chiếu và xác minh hãng thực tế",
+    });
+    const next = await parse([
+      row({ ...rows[0], "Return Status": "Completed" }),
+    ]);
+    const preview = await previewReturns(admin, next, context());
+    expect(preview.carrierChecks[0]).toMatchObject({
+      carrierId: spx,
+      origin: "verified",
+      conflict: true,
+    });
+    expect(preview.carrierSummary).toMatchObject([
+      { id: spx, name: "SPX Express", requests: 1 },
+    ]);
+    await commitReturns(admin, next, "update-format.csv", {
+      ...context(),
+      previewFingerprint: preview.previewFingerprint,
+    });
+    expect((await returnList(admin, {})).carriers[0].id).toBe(spx);
+    expect(
+      (await returnDetail(admin, record.id)).parcels[0].identification
+        .carrierId,
+    ).toBe(spx);
+    const received = await receiveReturn(admin, {
+      code: "854160000001",
+      warehouseId: warehouse,
+      shiftId: shift,
+      requestId: crypto.randomUUID(),
+      method: "manual",
+    });
+    expect(received.carrierIdentification).toMatchObject({
+      carrierId: spx,
+      origin: "verified",
+    });
+    expect(
+      (await sql`SELECT carrier_id,carrier_origin FROM return_parcels`)[0],
+    ).toMatchObject({ carrier_id: spx, carrier_origin: "manual" });
+  });
   it("dùng chung hãng, ưu tiên tên hợp lệ, mâu thuẫn được đánh dấu; unknown không mặc định theo sàn", async () => {
     const catalog = await carrierCatalog(sql);
     expect(identifyCarrier(catalog, "862000000001").carrierId).toBe(carrier);
@@ -140,9 +280,11 @@ describe("Đơn hoàn V2: nguồn, nhận diện và tỷ lệ thật", () => {
       conflict: true,
     });
     expect(identifyCarrier(catalog, "854160000001")).toMatchObject({
-      carrierId: null,
-      carrier: "Chưa xác định",
+      carrierId: carrier,
+      carrier: "J&T Express",
+      origin: "format",
     });
+    expect(identifyCarrier(catalog, "8554").carrierId).toBeNull();
     expect(
       identifyCarrier(catalog, "862000000001", "SPX", carrier).carrierId,
     ).toBe(carrier);
