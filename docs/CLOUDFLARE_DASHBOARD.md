@@ -35,7 +35,7 @@ Mở `/health` để kiểm tra runtime và `/api/health` để kiểm tra datab
 ## 4. Trước khi vận hành
 
 - Nếu giữ dữ liệu Railway: làm theo `MIGRATION.md`, đối soát và liên kết Supabase Auth trước khi tạo Admin mới. Không chạy seed, xóa bảng hoặc reset database thật.
-- Deploy worker nền riêng theo `DEPLOYMENT.md`/`Dockerfile.worker`; cần secret server trên host worker. Chưa có worker thì PDF/Excel/báo cáo sẽ chờ trong hàng đợi. Render blueprint là tài nguyên có phí, cần xem giá trước khi tạo.
+- PDF xuất kho và CSV hoàn TikTok có luồng nhập trực tiếp, không cần worker Node. Với Excel/báo cáo/luồng legacy, deploy worker nền riêng theo `DEPLOYMENT.md`/`Dockerfile.worker`; cần secret server trên host worker. Render blueprint là tài nguyên có phí, cần xem giá trước khi tạo.
 - Chỉ thông báo hệ thống sẵn sàng khi đã đăng nhập, thử quét, có heartbeat worker, đọc/lưu PDF, tải báo cáo và kiểm tra backup. Tính đến lúc viết tài liệu này chưa có xác nhận deployment production.
 
 ## Chẩn đoán kết nối Pooler

@@ -14,10 +14,10 @@ export function CatalogReadiness({ refs, user }: { refs: Row; user: User }) {
       {refs.workerAvailable === false && user.role !== "staff" && (
         <div className="notice warning" role="status">
           <p>
-            Dịch vụ xử lý file chưa kết nối gần đây. Nhập PDF/Excel và xuất báo
-            cáo cần dịch vụ này; xem trạng thái tại{" "}
-            <a href="#jobs">Tác vụ dữ liệu</a>. CSV mẫu TikTok Shop có thể nhập
-            trực tiếp tại Quản lý đơn hoàn.
+            Dịch vụ xử lý file chưa kết nối gần đây. Nhập Excel và xuất báo cáo
+            cần dịch vụ này; xem trạng thái tại{" "}
+            <a href="#jobs">Tác vụ dữ liệu</a>. PDF xuất kho và CSV mẫu TikTok
+            Shop có thể nhập trực tiếp.
           </p>
         </div>
       )}

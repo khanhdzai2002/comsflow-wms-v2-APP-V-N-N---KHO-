@@ -1,6 +1,13 @@
 import { test, expect } from "@playwright/test";
 import { returnCsv, returnRow } from "../return-fixture";
 import { parseTikTokReturnCsv } from "../../src/lib/return-csv-parse";
+import {
+  makePdf,
+  labelText,
+  continuationText,
+  shopeeLabelText,
+} from "../pdf-fixture";
+import { analyzeLabelPages } from "../../src/lib/pdf-labels";
 const id = "11111111-1111-4111-8111-111111111111";
 const jobId = "22222222-2222-4222-8222-222222222222";
 test.beforeEach(async ({ page }) => {
@@ -116,6 +123,180 @@ test("return import remains directly identifiable as its own selected tab", asyn
   await expect(
     page.getByRole("tab", { name: "Nhập dữ liệu đơn hoàn", exact: true }),
   ).toHaveAttribute("aria-selected", "true");
+});
+
+test("real browser PDF worker reads JT/SPX, resumes sent pages and retries a lost save without a processor", async ({
+  page,
+}) => {
+  const files = [
+    {
+      name: "JT-fixture.pdf",
+      mimeType: "application/pdf",
+      buffer: makePdf([
+        labelText(),
+        continuationText(),
+        labelText("862000000002"),
+      ]),
+    },
+    {
+      name: "SPX-fixture.pdf",
+      mimeType: "application/pdf",
+      buffer: makePdf([shopeeLabelText()]),
+    },
+  ];
+  const jobs = new Map<string, any>();
+  let lostPages = false,
+    lostCommit = false;
+  const commits: string[] = [];
+  await page.route("**/api/sources**", (route) => route.fulfill({ json: [] }));
+  await page.route("https://storage.example.test/**", (route) =>
+    route.fulfill({ json: { Key: "fixture", Id: jobId } }),
+  );
+  await page.route("**/api/jobs/**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/api/jobs/uploads") {
+      const data = route.request().postDataJSON();
+      expect(data.route).toBe("sources/browser/preview");
+      const job =
+        "77777777-7777-4777-8777-" + String(jobs.size + 1).padStart(12, "0");
+      jobs.set(job, {
+        ...data,
+        id: job,
+        pages: [],
+        status: "queued",
+        attempts: 0,
+      });
+      return route.fulfill({
+        json: {
+          id: job,
+          status: "waiting_upload",
+          path: "input/" + job,
+          token: "fixture-upload",
+          url: "https://storage.example.test",
+          key: "fixture-public",
+          bucket: "comsflow-private",
+        },
+      });
+    }
+    const [, , , key, action] = path.split("/");
+    const job = jobs.get(key);
+    if (!job)
+      return route.fulfill({ status: 404, json: { error: "Missing fixture" } });
+    if (action === "finalize")
+      return route.fulfill({ json: { id: key, status: job.status } });
+    if (action === "pdf-pages") {
+      const body = route.request().postDataJSON();
+      expect(body.offset).toBe(job.pages.length);
+      expect(body.pages.length).toBeLessThanOrEqual(20);
+      expect(body.labels).toBeUndefined();
+      job.pages.push(...body.pages);
+      job.totalPages = body.totalPages;
+      if (job.filename.startsWith("JT") && !lostPages) {
+        lostPages = true;
+        return route.abort("failed");
+      }
+      return route.fulfill({
+        json: { receivedPages: job.pages.length, totalPages: job.totalPages },
+      });
+    }
+    if (action === "pdf-preview") {
+      expect(job.pages).toHaveLength(job.totalPages);
+      const parsed = analyzeLabelPages(job.pages, job.sha256);
+      expect(parsed.errors).toEqual([]);
+      job.status = "succeeded";
+      job.result = {
+        ...parsed,
+        uniqueShipments: parsed.labels.length,
+        existingShipments: 0,
+        alreadyScanned: 0,
+        alreadyHanded: 0,
+        differentDueDates: 0,
+        conflicts: [],
+        existingManifestId: null,
+        existingManifestArchived: false,
+        carrierUnresolved: false,
+        channelName: parsed.detectedChannels[0],
+        carrierName: parsed.detectedCarriers[0],
+        carrierId: id,
+      };
+      return route.fulfill({ json: job.result });
+    }
+    if (action === "commit") {
+      job.attempts++;
+      if (!commits.includes(key)) commits.push(key);
+      job.route = "sources/browser/commit";
+      if (job.filename.startsWith("JT") && !lostCommit) {
+        lostCommit = true;
+        return route.abort("failed");
+      }
+      return route.fulfill({
+        json: {
+          id: key,
+          total: job.result.uniqueShipments,
+          newShipments: job.result.uniqueShipments,
+          reused: false,
+        },
+      });
+    }
+    expect(action).toBeUndefined();
+    return route.fulfill({
+      json: {
+        id: key,
+        route: job.route,
+        status: job.status,
+        receivedPages: job.pages.length,
+        totalPages: job.totalPages,
+        workerAvailable: false,
+      },
+    });
+  });
+  await page.goto("/#imports/pdf");
+  await page.getByLabel("File PDF nguồn", { exact: true }).setInputFiles(files);
+  const read = page.getByRole("button", {
+    name: "Đọc và đếm PDF",
+    exact: true,
+  });
+  await read.click();
+  await expect(read).toBeEnabled({ timeout: 30000 });
+  await expect(
+    page.locator(".source-preview[data-state='blocked']"),
+  ).toHaveCount(1);
+  await read.click();
+  await expect(page.locator(".source-preview[data-state='ready']")).toHaveCount(
+    2,
+    { timeout: 30000 },
+  );
+  const previews = page.locator(".source-preview");
+  await expect(previews.filter({ hasText: "JT-fixture.pdf" })).toContainText(
+    "2 vận đơn duy nhất",
+  );
+  await expect(previews.filter({ hasText: "JT-fixture.pdf" })).toContainText(
+    "1 trang sản phẩm tiếp theo",
+  );
+  await expect(previews.filter({ hasText: "SPX-fixture.pdf" })).toContainText(
+    "SPX Express",
+  );
+  await expect(page.locator(".pdf-batch-summary")).toContainText(
+    "3 vận đơn duy nhất",
+  );
+  expect(commits).toHaveLength(0);
+  await page
+    .getByRole("button", { name: "Lưu 2 file hợp lệ", exact: true })
+    .click();
+  await expect(page.locator(".source-preview[data-state='saved']")).toHaveCount(
+    1,
+  );
+  await page
+    .getByRole("button", { name: /Lưu 1 file hợp lệ \/ thử lại file chưa lưu/ })
+    .click();
+  await expect(page.locator(".source-preview[data-state='saved']")).toHaveCount(
+    2,
+  );
+  expect(jobs.size).toBe(2);
+  expect(commits).toHaveLength(2);
+  expect(
+    [...jobs.values()].find((j) => j.filename.startsWith("JT")).attempts,
+  ).toBe(2);
 });
 
 test("TikTok CSV imports without a processor and safely resumes after a lost commit response", async ({

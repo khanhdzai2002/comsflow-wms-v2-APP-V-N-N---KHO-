@@ -54,7 +54,7 @@ export async function waitJob(id: string) {
       throw new Error(job.error || "Tác vụ đã dừng");
     if (job.status === "queued" && job.workerAvailable === false)
       throw new Error(
-        "File đã được lưu nhưng dịch vụ xử lý file chưa hoạt động. Mở “Tác vụ dữ liệu” để xem trạng thái; cần kết nối dịch vụ xử lý trước khi đọc PDF/Excel hoặc xuất báo cáo.",
+        "File đã được lưu nhưng dịch vụ xử lý file chưa hoạt động. Mở “Tác vụ dữ liệu” để xem trạng thái; cần kết nối dịch vụ xử lý trước khi đọc Excel hoặc xuất báo cáo. PDF xuất kho và CSV TikTok có luồng nhập trực tiếp.",
       );
     await new Promise((resolve) => setTimeout(resolve, 1500));
   }
@@ -63,6 +63,10 @@ export async function waitJob(id: string) {
   );
 }
 export async function fileJob(route: string, form: FormData) {
+  if (/^sources\/(preview|commit)$/.test(route)) {
+    const { browserSourcePdfJob } = await import("./source-pdf-client");
+    return browserSourcePdfJob(route, form);
+  }
   const file = form.get("file");
   if (!(file instanceof File)) throw new Error("Chọn file để tiếp tục");
   const sourceContext = JSON.parse(String(form.get("context") || "{}"));

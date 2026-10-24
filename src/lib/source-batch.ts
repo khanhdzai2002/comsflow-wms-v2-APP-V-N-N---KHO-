@@ -12,7 +12,8 @@ export type PdfBatchPreview = {
   existingManifestArchived?: boolean;
 };
 
-// Browser preflight only. The server re-parses and validates each file again on commit.
+// Browser preflight only. The server validates stored identities and current
+// warehouse/order/carrier conflicts again in the authoritative commit transaction.
 export function summarizePdfBatch(
   records: { preview?: PdfBatchPreview; error?: string }[],
 ) {

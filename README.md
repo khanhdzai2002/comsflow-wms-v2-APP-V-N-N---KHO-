@@ -2,7 +2,7 @@
 
 Dự án mới, tách khỏi `onlineportfolio` trên Railway. Giữ giao diện và các nghiệp vụ xuất kho/đơn hoàn của ComsFlow; thay lớp chạy web, đăng nhập, lưu file và xử lý tác vụ nặng.
 
-**Trạng thái:** mã nguồn chạy và kiểm thử local; chủ dự án đã xác nhận khởi tạo đủ 17 migration trên Supabase. Chưa triển khai web/worker production hoặc chuyển dữ liệu Railway. Repository mới: https://github.com/khanhdzai2002/comsflow-wms-v2-APP-V-N-N---KHO-.
+**Trạng thái:** chủ dự án đã xác nhận web trên Cloudflare, database và đăng nhập hoạt động, cùng 17 migration trên Supabase. Rollout từng bản sửa vẫn cần kiểm tra trên app thật; chưa xác nhận Node processor hoặc chuyển dữ liệu Railway. Repository mới: https://github.com/khanhdzai2002/comsflow-wms-v2-APP-V-N-N---KHO-.
 
 Triển khai không dùng terminal: [hướng dẫn Cloudflare Dashboard](docs/CLOUDFLARE_DASHBOARD.md).
 
@@ -10,7 +10,8 @@ Triển khai không dùng terminal: [hướng dẫn Cloudflare Dashboard](docs/C
 
 - **Cloudflare Workers:** React/Vite, API cùng domain, quét đơn và các giao dịch ngắn.
 - **Supabase:** PostgreSQL là nguồn dữ liệu chính; Supabase Auth đăng nhập; Storage riêng tư lưu file đầu vào/báo cáo.
-- **Worker Node riêng:** lấy tác vụ từ PostgreSQL, đọc PDF/Excel trong tiến trình con, một file mỗi worker. Worker có thể chạy trên VM, Fly hoặc Render. Máy chủ web không đọc PDF.
+- **PDF xuất kho trực tiếp:** module worker trên trình duyệt đọc từng trang; API kiểm tra từng nhóm tối đa 20 trang, đối chiếu bản gốc trong private Storage và lưu giao dịch. Không cần Render, không đưa PDF.js vào API Cloudflare. CSV hoàn TikTok có luồng nhập trực tiếp riêng.
+- **Worker Node riêng:** xử lý Excel, báo cáo và luồng PDF legacy trong tiến trình con, một file mỗi worker. Có thể chạy trên VM, Fly hoặc Render; không bắt buộc cho PDF xuất kho và CSV hoàn TikTok.
 - **Tác vụ dữ liệu:** theo dõi nhập file sau F5, xác nhận lưu từ kết quả xem trước, tải đầy đủ lịch sử quét theo ngày Việt Nam.
 
 Logo, menu, màn hình quét, đối soát, bàn giao, nhập file, đơn hoàn, nhân viên và hướng dẫn được giữ lại. Mẫu nguồn hỗ trợ TikTok/J&T/BEST và Shopee/SPX/GHN; đếm vận đơn duy nhất, ghép trang sản phẩm tiếp theo, không lấy số trang làm số kiện.
@@ -30,7 +31,7 @@ npm run build:worker
 
 Các bước triển khai chính xác, chỗ nhập biến môi trường và cấu hình worker: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
-Chạy local: `npm run dev`, `npm run dev:api` và `npm run worker:dev` trong ba terminal; Wrangler đọc secrets local từ `.dev.vars` (không commit). Vite dùng port 5173, API 8787. Không chạy demo trên Supabase; `db:seed` chỉ chấp nhận database local và không cung cấp tài khoản Auth production.
+Chạy local: `npm run dev` và `npm run dev:api`; thêm `npm run worker:dev` khi cần Excel/báo cáo. Wrangler đọc secrets local từ `.dev.vars` (không commit). Vite dùng port 5173, API 8787. Không chạy demo trên Supabase; `db:seed` chỉ chấp nhận database local và không cung cấp tài khoản Auth production.
 
 Kiểm thử cần PostgreSQL local riêng `*_test` qua `TEST_DATABASE_URL`, tuyệt đối không trỏ dữ liệu thực:
 

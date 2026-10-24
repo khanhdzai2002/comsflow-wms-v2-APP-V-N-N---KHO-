@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db, audit, type User, type Tx } from "./db";
 import { AppError, requireRole, managerRoles } from "./domain";
 import { canonicalSourceCarrier } from "./source-carriers";
-import type { SourcePdf } from "./pdf-source";
+import type { SourcePdf } from "./pdf-labels";
 
 export const sourceContextSchema = z.object({
   warehouseId: warehouseIdSchema,

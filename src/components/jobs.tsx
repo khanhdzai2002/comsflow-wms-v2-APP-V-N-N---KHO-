@@ -78,8 +78,8 @@ export function DataJobs() {
       {stale && (
         <div className="notice warning">
           <AlertCircle size={18} /> Worker xử lý file chưa kết nối gần đây. Tác
-          vụ được giữ trong hàng đợi; quét đơn vẫn hoạt động riêng. CSV mẫu
-          TikTok Shop nhập trực tiếp tại Quản lý đơn hoàn, không cần worker này.
+          vụ được giữ trong hàng đợi; quét đơn vẫn hoạt động riêng. PDF xuất kho
+          và CSV mẫu TikTok Shop có thể nhập trực tiếp, không cần worker này.
         </div>
       )}
       <section className="card padded">

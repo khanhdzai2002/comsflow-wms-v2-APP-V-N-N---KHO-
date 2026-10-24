@@ -10,7 +10,16 @@ import {
   failJob,
 } from "../src/lib/jobs";
 import { executeJob } from "../src/worker/execute";
-import { makePdf, labelText, continuationText } from "./pdf-fixture";
+import {
+  makePdf,
+  labelText,
+  continuationText,
+  shopeeLabelText,
+} from "./pdf-fixture";
+import {
+  appendSourcePages,
+  processSourceBrowser,
+} from "../src/lib/source-browser-job";
 import { returnCsv, returnRow } from "./return-fixture";
 import { processReturnCsv } from "../src/lib/return-csv-job";
 import { parseTikTokReturnCsv } from "../src/lib/return-csv-parse";
@@ -282,6 +291,159 @@ async function upload(
   await finalizeUpload(admin, job.id);
   return { job, raw };
 }
+it("browser PDF stages contiguous pages with replay protection and commits once without a processor", async () => {
+  const texts = [labelText(), continuationText()];
+  const { job } = await upload(makePdf(texts), {
+    route: "sources/browser/preview",
+  });
+  expect(await claimJob()).toBeNull();
+  const first = { offset: 0, totalPages: 2, pages: [texts[0]] };
+  expect(await appendSourcePages(admin, job.id, first)).toMatchObject({
+    receivedPages: 1,
+  });
+  expect(await appendSourcePages(admin, job.id, first)).toMatchObject({
+    receivedPages: 1,
+  });
+  await expect(
+    appendSourcePages(admin, job.id, {
+      ...first,
+      pages: [texts[0] + "CHANGED"],
+    }),
+  ).rejects.toMatchObject({ status: 409 });
+  await expect(
+    processSourceBrowser(admin, job.id, false),
+  ).rejects.toMatchObject({ status: 409 });
+  await appendSourcePages(admin, job.id, {
+    offset: 1,
+    totalPages: 2,
+    pages: [texts[1]],
+    labels: [{ trackingCode: "FAKE" }],
+    duplicatePages: 999,
+  });
+  const preview = await processSourceBrowser(admin, job.id, false);
+  expect(preview).toMatchObject({
+    pageCount: 2,
+    uniqueShipments: 1,
+    continuationPages: 1,
+    duplicatePages: 0,
+    errors: [],
+  });
+  expect(await sql`SELECT id FROM shipments`).toHaveLength(0);
+  const [a, b] = await Promise.all([
+    processSourceBrowser(admin, job.id, true),
+    processSourceBrowser(admin, job.id, true),
+  ]);
+  expect(a.id).toBe(b.id);
+  expect(await sql`SELECT id FROM shipments`).toHaveLength(1);
+  expect(await sql`SELECT id FROM source_manifests`).toHaveLength(1);
+  expect(
+    await sql`SELECT id FROM audit_logs WHERE action='source_browser_extract'`,
+  ).toHaveLength(1);
+  expect((await ownedJob(admin, job.id)).route).toBe("sources/browser/commit");
+});
+it("browser PDF detects SPX separately from TikTok J&T and preserves a labelled shipment", async () => {
+  await sql`INSERT INTO shipping_carriers(name) VALUES('SPX Express')`;
+  const text = shopeeLabelText();
+  const { job } = await upload(makePdf([text]), {
+    route: "sources/browser/preview",
+  });
+  await appendSourcePages(admin, job.id, {
+    offset: 0,
+    totalPages: 1,
+    pages: [text],
+  });
+  expect(await processSourceBrowser(admin, job.id, false)).toMatchObject({
+    channelName: "Shopee",
+    carrierName: "SPX Express",
+    uniqueShipments: 1,
+    errors: [],
+  });
+  expect(await processSourceBrowser(admin, job.id, true)).toMatchObject({
+    newShipments: 1,
+    total: 1,
+  });
+  const [shipment] =
+    await sql`SELECT s.tracking_code,c.name carrier,ch.name channel FROM shipments s JOIN shipping_carriers c ON c.id=s.carrier_id JOIN orders o ON o.id=s.order_id JOIN sales_channels ch ON ch.id=o.channel_id`;
+  expect(shipment).toMatchObject({
+    tracking_code: "SPXVN00000000001A",
+    carrier: "SPX Express",
+    channel: "Shopee",
+  });
+});
+it("browser PDF cannot skip pages, commit before preview, use another actor or accept a changed original", async () => {
+  const text = labelText(),
+    bytes = makePdf([text]);
+  const { job } = await upload(bytes, { route: "sources/browser/preview" });
+  await expect(
+    appendSourcePages(admin, job.id, {
+      offset: 1,
+      totalPages: 1,
+      pages: [text],
+    }),
+  ).rejects.toMatchObject({ status: 409 });
+  await expect(
+    appendSourcePages(staff, job.id, {
+      offset: 0,
+      totalPages: 1,
+      pages: [text],
+    }),
+  ).rejects.toMatchObject({ status: 403 });
+  await expect(
+    appendSourcePages({ ...admin, id: crypto.randomUUID() }, job.id, {
+      offset: 0,
+      totalPages: 1,
+      pages: [text],
+    }),
+  ).rejects.toMatchObject({ status: 404 });
+  await appendSourcePages(admin, job.id, {
+    offset: 0,
+    totalPages: 1,
+    pages: [text],
+  });
+  await expect(processSourceBrowser(admin, job.id, true)).rejects.toMatchObject(
+    { status: 409 },
+  );
+  const record = await ownedJob(admin, job.id);
+  const changed = Buffer.from(bytes);
+  changed[changed.length - 1] ^= 1;
+  mock.files.set(record.storage_path, changed);
+  await expect(processSourceBrowser(admin, job.id, false)).rejects.toThrow(
+    "SHA-256",
+  );
+  expect(await sql`SELECT id FROM shipments`).toHaveLength(0);
+  mock.files.set(record.storage_path, bytes);
+  await processSourceBrowser(admin, job.id, false);
+  await sql`UPDATE data_jobs SET status='cancelled' WHERE id=${job.id}`;
+  await expect(processSourceBrowser(admin, job.id, true)).rejects.toMatchObject(
+    { status: 409 },
+  );
+});
+it("a PDF page with unsupported content blocks the whole source; expired jobs cannot resume", async () => {
+  const texts = [labelText(), "unsupported page"];
+  const { job } = await upload(makePdf(texts), {
+    route: "sources/browser/preview",
+  });
+  await appendSourcePages(admin, job.id, {
+    offset: 0,
+    totalPages: 2,
+    pages: texts,
+  });
+  const preview = await processSourceBrowser(admin, job.id, false);
+  expect(preview.errors.length).toBeGreaterThan(0);
+  await expect(processSourceBrowser(admin, job.id, true)).rejects.toMatchObject(
+    { status: 400 },
+  );
+  expect(await sql`SELECT id FROM shipments`).toHaveLength(0);
+  expect(await sql`SELECT id FROM source_manifests`).toHaveLength(0);
+  await sql`UPDATE data_jobs SET expires_at=now()-interval '1 hour' WHERE id=${job.id}`;
+  await expect(
+    appendSourcePages(admin, job.id, {
+      offset: 0,
+      totalPages: 2,
+      pages: texts,
+    }),
+  ).rejects.toMatchObject({ status: 410 });
+});
 it("signed upload is owner scoped, rejects staff and waits for complete object", async () => {
   await expect(createUpload(staff, {})).rejects.toMatchObject({ status: 403 });
   const { job } = await upload();

@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FileText, Trash2, RotateCcw } from "lucide-react";
 import { summarizePdfBatch, type PdfBatchPreview } from "@/lib/source-batch";
 import {
@@ -37,6 +37,8 @@ type PdfSelection = {
 };
 const MAX_PDF_FILES = 20;
 export function PdfSourceImport({ refs }: { refs: Row }) {
+  const abort = useRef<AbortController | null>(null);
+  useEffect(() => () => abort.current?.abort(), []);
   const [records, setRecords] = useState<PdfSelection[]>([]);
   const [warehouse, setWarehouse] = useCatalogSelection(refs.warehouses);
   const [channel, setChannel] = useState("");
@@ -46,6 +48,7 @@ export function PdfSourceImport({ refs }: { refs: Row }) {
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [progress, setProgress] = useState("");
+  const [reading, setReading] = useState(false);
   const [saved, setSaved] = useState("");
   const summary = summarizePdfBatch(records);
   const pending = summary.readyIndexes.filter((i) => !records[i].result);
@@ -97,6 +100,8 @@ export function PdfSourceImport({ refs }: { refs: Row }) {
       return;
     }
     setBusy(true);
+    abort.current = new AbortController();
+    setReading(true);
     setError("");
     setSaved("");
     const next = records.map((r) => ({
@@ -106,6 +111,7 @@ export function PdfSourceImport({ refs }: { refs: Row }) {
     setRecords(next);
     try {
       for (let i = 0; i < next.length; i++) {
+        if (abort.current.signal.aborted) break;
         setProgress(
           `Đang đọc file ${i + 1}/${next.length}: ${next[i].file.name}`,
         );
@@ -114,15 +120,14 @@ export function PdfSourceImport({ refs }: { refs: Row }) {
             throw new Error(
               `File PDF tối đa ${MAX_SOURCE_PDF_MB} MB; hãy tách file lớn hơn.`,
             );
+          const { browserSourcePdfJob } = await import("./source-pdf-client");
           next[i] = {
             ...next[i],
-            preview: await api(
+            preview: await browserSourcePdfJob(
               "sources/preview",
-              {
-                method: "POST",
-                body: formFor(next[i].file),
-              },
-              SOURCE_REQUEST_TIMEOUT_MS,
+              formFor(next[i].file),
+              setProgress,
+              abort.current.signal,
             ),
           };
         } catch (e) {
@@ -132,6 +137,7 @@ export function PdfSourceImport({ refs }: { refs: Row }) {
       }
     } finally {
       setBusy(false);
+      setReading(false);
       setProgress("");
     }
   }
@@ -197,6 +203,11 @@ export function PdfSourceImport({ refs }: { refs: Row }) {
           Chọn nhiều PDF cùng kho, shop và ngày dự kiến xuất. Sàn và hãng được
           nhận dạng riêng từng file; có thể chọn cả Shopee/SPX/GHN lẫn
           TikTok/J&T/BEST. Kiểm tra từng file rồi lưu các file hợp lệ.
+        </p>
+        <p className="notice">
+          PDF được đọc trong worker riêng trên trình duyệt; không cần Render.
+          Giữ tab mở khi đọc. File gốc được lưu bảo mật; dữ liệu chỉ nhập sau
+          khi máy chủ đối chiếu và bạn xác nhận.
         </p>
         <div className="form-grid">
           <label className="field">
@@ -346,6 +357,19 @@ export function PdfSourceImport({ refs }: { refs: Row }) {
           >
             {busy ? "Đang xử lý…" : "Đọc và đếm PDF"}
           </button>
+          {reading && (
+            <button
+              className="secondary"
+              onClick={() => {
+                abort.current?.abort();
+                setError(
+                  "Đã dừng đọc PDF. Tiến độ đã gửi được giữ; bấm đọc lại để tiếp tục.",
+                );
+              }}
+            >
+              Dừng đọc PDF
+            </button>
+          )}
         </div>
         {progress && <p role="status">{progress}</p>}
         {records.some((r) => r.preview || r.error) && (

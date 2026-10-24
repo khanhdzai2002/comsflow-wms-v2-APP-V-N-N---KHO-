@@ -17,6 +17,10 @@ import { storage } from "../lib/supabase";
 import { workerHealth } from "../lib/worker-health";
 import { APP_REVISION } from "../lib/app-version";
 import { processReturnCsv } from "../lib/return-csv-job";
+import {
+  appendSourcePages,
+  processSourceBrowser,
+} from "../lib/source-browser-job";
 async function route(req: AppRequest) {
   const path = req.nextUrl.pathname.replace(/^\/api\//, "");
   if (
@@ -43,8 +47,8 @@ async function route(req: AppRequest) {
       headers: { Location: `/#jobs/${job.id}` },
     });
   }
-  const read = async () => {
-    if (Number(req.headers.get("content-length")) > 32768)
+  const read = async (limit = 32768) => {
+    if (Number(req.headers.get("content-length")) > limit)
       throw new AppError(413, "Yêu cầu quá lớn");
     const reader = req.body?.getReader();
     if (!reader) throw new AppError(400, "Thiếu dữ liệu");
@@ -54,7 +58,7 @@ async function route(req: AppRequest) {
       const { done, value } = await reader.read();
       if (done) break;
       size += value.length;
-      if (size > 32768) {
+      if (size > limit) {
         await reader.cancel();
         throw new AppError(413, "Yêu cầu quá lớn");
       }
@@ -83,9 +87,17 @@ async function route(req: AppRequest) {
   }
   const [, id, action] = path.split("/");
   const job = await ownedJob(user, id);
+  if (action === "pdf-pages" && req.method === "POST")
+    return AppResponse.json(
+      await appendSourcePages(user, id, await read(288 * 1024)),
+    );
+  if (action === "pdf-preview" && req.method === "POST")
+    return AppResponse.json(await processSourceBrowser(user, id, false));
   if (action === "csv-preview" && req.method === "POST")
     return AppResponse.json(await processReturnCsv(user, id, false));
   if (action === "commit" && req.method === "POST") {
+    if (job.route.startsWith("sources/browser/"))
+      return AppResponse.json(await processSourceBrowser(user, id, true));
     if (job.route.startsWith("returns/csv/"))
       return AppResponse.json(await processReturnCsv(user, id, true));
     const result = await db().begin(async (tx) => {
@@ -147,6 +159,13 @@ async function route(req: AppRequest) {
       error: job.error,
       result: job.status === "succeeded" ? job.result : null,
       attempts: job.attempts,
+      expiresAt: job.expires_at,
+      ...(job.route.startsWith("sources/browser/")
+        ? {
+            receivedPages: job.payload.browserPdf?.state.pageCount ?? 0,
+            totalPages: job.payload.browserPdf?.totalPages ?? null,
+          }
+        : {}),
       ...(await workerHealth()),
     });
   throw new AppError(404, "Không tìm thấy tác vụ");

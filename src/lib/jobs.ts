@@ -16,6 +16,7 @@ export const fileRoutes = [
   "returns/sales/preview",
   "returns/sales/commit",
   RETURN_CSV_ROUTE,
+  "sources/browser/preview",
 ];
 export function reportRoute(path: string, params: URLSearchParams) {
   return (
@@ -160,7 +161,7 @@ export async function claimJob() {
   const sql = db(),
     token = randomUUID();
   const [row] =
-    await sql`WITH candidate AS (SELECT id FROM data_jobs WHERE route NOT LIKE 'returns/csv/%' AND expires_at>now() AND attempts<max_attempts AND ((status='queued' AND next_attempt_at<=now()) OR (status='running' AND lease_expires_at<now())) ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE data_jobs j SET status='running',attempts=attempts+1,lease_token=${token},lease_expires_at=now()+interval '10 minutes',updated_at=now(),error=NULL FROM candidate c WHERE j.id=c.id RETURNING j.*`;
+    await sql`WITH candidate AS (SELECT id FROM data_jobs WHERE route NOT LIKE 'returns/csv/%' AND route NOT LIKE 'sources/browser/%' AND expires_at>now() AND attempts<max_attempts AND ((status='queued' AND next_attempt_at<=now()) OR (status='running' AND lease_expires_at<now())) ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE data_jobs j SET status='running',attempts=attempts+1,lease_token=${token},lease_expires_at=now()+interval '10 minutes',updated_at=now(),error=NULL FROM candidate c WHERE j.id=c.id RETURNING j.*`;
   return row ?? null;
 }
 export async function failJob(
