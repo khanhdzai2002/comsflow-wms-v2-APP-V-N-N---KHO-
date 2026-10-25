@@ -1,3 +1,4 @@
+import { prescanReady, scanHistoryRelation } from "./prescan";
 import { db, type User } from "./db";
 import { todayVN, managerRoles, requireRole, AppError } from "./domain";
 import { z } from "zod";
@@ -105,6 +106,7 @@ export async function referenceData(user: User) {
       : await sql`SELECT id,name,email,role,active FROM users ORDER BY name`;
   return {
     appRevision: APP_REVISION,
+    prescanReady: await prescanReady(sql),
     ...(user.role !== "staff" ? await workerHealth() : {}),
     serverTime: (await sql`SELECT clock_timestamp() AS at`)[0].at,
     warehouses,
@@ -146,6 +148,7 @@ export async function dashboard(user: User, filters: Filters) {
   requireRole(user, managerRoles);
   const sql = db(),
     where = filterSQL(filters);
+  const eventsTable = sql(await scanHistoryRelation(sql));
   // Aggregate inside PostgreSQL. Returning raw scan responses previously made
   // dashboard CPU/RAM grow with every event and every polling client.
   const grouped = (key: "channel" | "carrier") => sql`
@@ -164,7 +167,7 @@ export async function dashboard(user: User, filters: Filters) {
       FROM shipments s JOIN orders o ON o.id=s.order_id JOIN sales_channels c ON c.id=o.channel_id
       JOIN shipping_carriers ca ON ca.id=s.carrier_id WHERE ${where}
     ), events AS (
-      SELECT e.user_id,e.outcome,e.created_at,u.name employee FROM scan_events e JOIN users u ON u.id=e.user_id
+      SELECT e.user_id,e.outcome,e.created_at,u.name employee FROM ${eventsTable} e JOIN users u ON u.id=e.user_id
       WHERE e.created_at>=(${filters.from ?? todayVN()}::date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')
       AND e.created_at<((${filters.to ?? todayVN()}::date+1)::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')
       AND (${!filters.employee} OR e.user_id=${filters.employee || null}::uuid)
@@ -187,7 +190,8 @@ export async function dashboard(user: User, filters: Filters) {
       SELECT user_id id,employee name,
         count(*) FILTER(WHERE outcome='success')::int success,
         count(*) FILTER(WHERE outcome='duplicate')::int duplicate,
-        count(*) FILTER(WHERE outcome NOT IN ('success','duplicate'))::int error,
+        count(*) FILTER(WHERE outcome='unknown')::int pending,
+        count(*) FILTER(WHERE outcome NOT IN ('success','duplicate','unknown'))::int error,
         min(created_at) AS "first",max(created_at) AS "last" FROM events GROUP BY user_id,employee
     ), event_hours AS (
       SELECT extract(hour FROM created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::int AS bucket_hour,count(*)::int scanned
@@ -216,9 +220,10 @@ export async function dashboard(user: User, filters: Filters) {
 export async function myScans(user: User, shift?: string) {
   if (shift) z.uuid().parse(shift);
   const sql = db();
+  const eventsTable = sql(await scanHistoryRelation(sql));
   const [summary] =
-    await sql`SELECT count(*) FILTER(WHERE outcome='success')::int success,count(*) FILTER(WHERE outcome='duplicate')::int duplicate,count(*) FILTER(WHERE outcome NOT IN ('success','duplicate'))::int error FROM scan_events WHERE user_id=${user.id} AND ((${Boolean(shift)} AND shift_id=${shift ?? null}::uuid) OR (${!shift} AND (created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date=(now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date))`;
+    await sql`SELECT count(*) FILTER(WHERE outcome='success')::int success,count(*) FILTER(WHERE outcome='duplicate')::int duplicate,count(*) FILTER(WHERE outcome='unknown')::int pending,count(*) FILTER(WHERE outcome NOT IN ('success','duplicate','unknown'))::int error FROM ${eventsTable} WHERE user_id=${user.id} AND ((${Boolean(shift)} AND shift_id=${shift ?? null}::uuid) OR (${!shift} AND (created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date=(now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date))`;
   const recent =
-    await sql`SELECT e.*,s.tracking_code,c.name carrier,ch.name channel FROM scan_events e LEFT JOIN shipments s ON s.id=e.shipment_id LEFT JOIN shipping_carriers c ON c.id=s.carrier_id LEFT JOIN orders o ON o.id=s.order_id LEFT JOIN sales_channels ch ON ch.id=o.channel_id WHERE e.user_id=${user.id} ORDER BY e.created_at DESC LIMIT 10`;
+    await sql`SELECT e.*,s.tracking_code,c.name carrier,ch.name channel FROM ${eventsTable} e LEFT JOIN shipments s ON s.id=e.shipment_id LEFT JOIN shipping_carriers c ON c.id=s.carrier_id LEFT JOIN orders o ON o.id=s.order_id LEFT JOIN sales_channels ch ON ch.id=o.channel_id WHERE e.user_id=${user.id} ORDER BY e.created_at DESC LIMIT 10`;
   return { summary, recent };
 }

@@ -1,5 +1,6 @@
+import { lockTrackingCodes, prescanReady } from "./prescan";
 import { detectCarrier } from "./carriers";
-import { db, type User } from "./db";
+import { db, type User, type Tx } from "./db";
 import {
   scanSchema,
   normalizeCode,
@@ -7,6 +8,17 @@ import {
   AppError,
   outcomes,
 } from "./domain";
+async function scanDetails(tx: Tx, shipmentId?: string) {
+  const [detail] = shipmentId
+    ? await tx`SELECT s.*,o.external_id,c.name channel,sh.name shop,ca.name carrier,w.name warehouse,u.name first_scanned_by
+      FROM shipments s JOIN orders o ON o.id=s.order_id JOIN sales_channels c ON c.id=o.channel_id
+      JOIN shops sh ON sh.id=o.shop_id JOIN shipping_carriers ca ON ca.id=s.carrier_id JOIN warehouses w ON w.id=s.warehouse_id LEFT JOIN users u ON u.id=s.scanned_by WHERE s.id=${shipmentId}`
+    : [];
+  const items = shipmentId
+    ? await tx`SELECT sku,name,color,size,quantity FROM order_items WHERE order_id=${detail.order_id}`
+    : [];
+  return { detail, items };
+}
 export async function scan(user: User, input: unknown) {
   const data = scanSchema.parse(input);
   const code = normalizeCode(data.code);
@@ -25,6 +37,29 @@ export async function scan(user: User, input: unknown) {
         keys.some((key) => prior.request_payload[key] !== data[key])
       )
         throw new AppError(409, "Mã yêu cầu đã gắn với dữ liệu khác");
+      if (prior.outcome === "unknown" && (await prescanReady(tx))) {
+        const [match] =
+          await tx`SELECT * FROM scan_reconciliations WHERE scan_event_id=${prior.id}`;
+        if (match) {
+          const { detail, items } = await scanDetails(tx, match.shipment_id);
+          return {
+            ...prior.response,
+            outcome: match.outcome,
+            message: outcomes[match.outcome],
+            pending: false,
+            reconciled: true,
+            shipment: detail,
+            items,
+            hint: null,
+            carrierIdentification: await detectCarrier(
+              tx,
+              detail.tracking_code,
+              "",
+              detail.carrier_id,
+            ),
+          };
+        }
+      }
       return prior.response;
     }
     if (
@@ -44,6 +79,7 @@ export async function scan(user: User, input: unknown) {
         400,
         "Chọn ca đang hoạt động, đúng kho và đã được phân công cho bạn",
       );
+    if (validCode(code)) await lockTrackingCodes(tx, [code]);
     const [shipment] = validCode(code)
       ? await tx`SELECT * FROM shipments WHERE tracking_code=${code} FOR UPDATE`
       : [];
@@ -61,14 +97,7 @@ export async function scan(user: User, input: unknown) {
     const [clock] = await tx`SELECT clock_timestamp() AS at`;
     if (outcome === "success")
       await tx`UPDATE shipments SET scanned_at=${clock.at},scanned_by=${user.id},shift_id=${data.shiftId},status='scanned',updated_at=now() WHERE id=${shipment.id}`;
-    const [detail] = shipment
-      ? await tx`SELECT s.*,o.external_id,c.name channel,sh.name shop,ca.name carrier,w.name warehouse,u.name first_scanned_by
-      FROM shipments s JOIN orders o ON o.id=s.order_id JOIN sales_channels c ON c.id=o.channel_id
-      JOIN shops sh ON sh.id=o.shop_id JOIN shipping_carriers ca ON ca.id=s.carrier_id JOIN warehouses w ON w.id=s.warehouse_id LEFT JOIN users u ON u.id=s.scanned_by WHERE s.id=${shipment.id}`
-      : [];
-    const items = shipment
-      ? await tx`SELECT sku,name,color,size,quantity FROM order_items WHERE order_id=${shipment.order_id}`
-      : [];
+    const { detail, items } = await scanDetails(tx, shipment?.id);
     const identification = await detectCarrier(
       tx,
       code,
@@ -80,6 +109,7 @@ export async function scan(user: User, input: unknown) {
       id,
       outcome,
       message: outcomes[outcome],
+      pending: outcome === "unknown",
       code,
       at: clock.at,
       employee: user.name,

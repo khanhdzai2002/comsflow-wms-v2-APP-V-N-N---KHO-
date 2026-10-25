@@ -226,7 +226,7 @@ export function databaseFailure(error: unknown): DatabaseFailure {
   if (["42P01", "42703"].includes(code))
     return result(
       "DB_SCHEMA_MISSING",
-      "Kết nối đã đến database nhưng thiếu bảng/cột ComsFlow. Kiểm tra DATABASE_URL trỏ đúng project đã chạy 17 migration; không xóa bảng.",
+      "Kết nối đã đến database nhưng thiếu bảng/cột ComsFlow. Kiểm tra DATABASE_URL trỏ đúng project đã chạy đủ migration (hiện tại 18); không xóa bảng.",
     );
   if (code === "42501")
     return result(

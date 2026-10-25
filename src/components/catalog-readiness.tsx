@@ -1,3 +1,4 @@
+import { PrescanSchemaNotice } from "./prescan-schema-notice";
 import { useState } from "react";
 import type { User } from "@/lib/db";
 import { post, refresh, toast, type Row } from "./shared";
@@ -11,6 +12,7 @@ export function CatalogReadiness({ refs, user }: { refs: Row; user: User }) {
   ].filter(Boolean);
   return (
     <>
+      <PrescanSchemaNotice refs={refs} user={user} />
       {refs.workerAvailable === false && user.role !== "staff" && (
         <div className="notice warning" role="status">
           <p>

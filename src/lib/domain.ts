@@ -13,7 +13,7 @@ export const statuses: Record<string, string> = {
 export const outcomes: Record<string, string> = {
   success: "QUÉT ĐƠN THÀNH CÔNG",
   duplicate: "ĐƠN NÀY ĐÃ ĐƯỢC QUÉT",
-  unknown: "Không tìm thấy trong dữ liệu nguồn",
+  unknown: "ĐÃ LƯU — CHỜ FILE ĐỐI SOÁT",
   invalid: "Mã không hợp lệ",
   cancelled: "Đơn đã hủy",
   blocked: "Đơn chưa đủ điều kiện xuất kho",

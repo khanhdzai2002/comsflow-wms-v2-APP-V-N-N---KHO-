@@ -126,3 +126,22 @@ Bản `2026-10-24.return-carriers-1` dùng chung service nhận diện với g�
 Không cần SQL/migration hoặc nhập lại file: dashboard, bộ lọc, danh sách và chi tiết tự phân giải hãng cho dữ liệu cũ chưa có hãng, trong giao dịch đọc. Nhập file mới lưu nguồn nhận diện; hãng đã xác minh thủ công và lịch sử nhận/kiểm/khiếu nại được giữ. Nếu danh mục thiếu hãng, Admin bổ sung hãng/tên gọi tại Cấu hình hệ thống. Không tự tạo ID hãng khi chỉ đọc dữ liệu.
 
 Hai nhóm có ý nghĩa riêng: `unknown` = có mã nhưng chưa nhận diện hãng; `no_tracking` = không có kiện/mã hoàn active. Mở nhóm ở dashboard dùng carrierScope=exclusive để số đếm khớp danh sách. Nhóm nhiều hãng/known+unknown vẫn riêng. Mã chỉ có vài ký tự được giữ để đối chiếu, không đoán hãng từ tiền tố mặc định.
+
+## Đối soát xuất kho hai chiều (2026-10-25)
+
+Bản `2026-10-25.bidirectional-scans-1` cần migration **018**. Sau khi xác nhận đúng project Supabase `lyeyjfvxmqruszgfrjze` và có bản sao lưu database có thể khôi phục, chạy `supabase/upgrade-018.sql` trong SQL Editor. Có thể sao chép toàn bộ SQL từ thông báo nâng cấp trong app (tài khoản Admin); không cần tải file. Script kiểm tra đủ 17 migration cũ, khóa triển khai và checksum, chỉ thêm bảng/index/view; chạy lại an toàn. Fresh install dùng `supabase/bootstrap.sql` gồm 18 migration. Không dùng upgrade này để nhập dữ liệu Railway. Chưa thực thi thay đổi trên production từ workspace.
+
+Trước khi nâng cấp, đăng nhập và nhật ký cũ vẫn đọc được; mã chưa có nguồn vẫn được ghi vào `scan_events`. Nhập nguồn xuất kho sẽ báo thiếu nâng cấp, không thông báo khớp thành công giả. Sau khi chạy SQL, bấm **Kiểm tra lại sau khi chạy SQL** hoặc tải lại trang. Cần triển khai lại Node processor nếu đang sử dụng nhập CSV/XLSX truyền thống hoặc xuất lịch sử quét.
+
+Luồng hai chiều:
+
+- Nhập file trước → quét mã: xác minh nguồn như trước.
+- Quét trước → file chưa có: server lưu mã chuẩn hóa, mã thô, người/giờ/ca/kho và hãng người dùng chọn; hiển thị **ĐÃ LƯU — CHỜ FILE ĐỐI SOÁT**. Đây là lượt quét đã lưu, chưa phải vận đơn đã tít hợp lệ.
+- Xác nhận nhập PDF hoặc CSV/XLSX: trong cùng transaction lưu nguồn, tự khớp mã vận đơn chính xác, đúng kho và hãng đã chọn (nếu có). Hãng suy đoán từ định dạng chỉ là gợi ý, không ghi đè hãng của nguồn. Không dùng mã đơn sàn để đoán mã vận đơn.
+- Chỉ nguồn chờ xử lý/chờ quét được chuyển thành đã tít. Hủy/chặn/review, sai kho hoặc hãng không tự khớp; giữ lượt chờ để kiểm tra. Không tự xác nhận bàn giao.
+- Giữ giờ/người/ca của lượt hợp lệ đầu tiên, kể cả ca đã kết thúc; lượt lặp thành quét trùng và không tăng tổng vận đơn. Ngày dự kiến xuất theo nguồn; biểu đồ hoạt động theo giờ quét gốc, không phải giờ nhập file.
+- Lịch sử gốc `scan_events` không sửa/xóa. `scan_reconciliations` lưu liên kết và audit; `effective_scan_events` dùng cho dashboard, nhật ký cá nhân/quản lý, chi tiết vận đơn, CSV lịch sử. CSV có thêm `original_outcome` và `reconciled_at`; response JSON gốc còn nguyên. Retry cùng request ID không tạo lượt mới; nếu mã đã khớp file, phản hồi kèm kết quả đã khớp và cùng ID/giờ gốc. Nhật ký đang tự cập nhật cũng hiển thị trạng thái đối soát hiện tại.
+- Khóa mã được lấy theo cùng thứ tự giữa quét và cả hai đường nhập; không bỏ lỡ lượt quét trong khoảng nguồn chưa được tạo. Gửi lại/import lại không nhân bản kết quả.
+- Tác vụ dọn nhật ký giữ mọi lượt `unknown` gốc, bao gồm lượt chờ và lượt đã tự khớp, để không xóa bằng chứng đối soát. Chưa có công cụ dọn riêng cho các bằng chứng này.
+
+Acceptance sau triển khai và migration: mở ca → quét một mã fixture chưa có nguồn → F5 còn **Chờ file đối soát** → xác nhận nhập file chứa mã đó → nhật ký và Tổng quan hiện đã tít đúng một lần, đúng giờ/người quét cũ → quét lại báo trùng. Thử thêm mã lệch kho/hãng và nguồn hủy để kiểm tra chúng không thành công. Chỉ thử fixture trên staging; production dùng dữ liệu nghiệp vụ do chủ kho chủ động chọn, không tự thêm dữ liệu thử.

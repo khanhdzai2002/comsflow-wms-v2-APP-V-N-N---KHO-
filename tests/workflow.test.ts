@@ -1515,3 +1515,178 @@ describe("Nguồn PDF và đối soát từng mã xuất kho", () => {
       });
     });
 });
+
+describe("Đối soát xuất kho hai chiều", () => {
+  it("quét trước CSV: giữ mã chuẩn hóa, người/giờ/ca gốc; quét lặp không cộng trùng, không cần ca còn mở", async () => {
+    const request = input(' {"tracking_code":"spxvntest0001"} ');
+    const first = await scan(staff, request);
+    expect(first).toMatchObject({
+      outcome: "unknown",
+      pending: true,
+      shipment: null,
+      code: "SPXVNTEST0001",
+    });
+    expect(await scan(staff, request)).toEqual(
+      JSON.parse(JSON.stringify(first)),
+    );
+    await scan(other, input());
+    expect((await myScans(staff, shift)).summary).toMatchObject({
+      success: 0,
+      pending: 1,
+      error: 0,
+    });
+    const original =
+      await sql`SELECT * FROM scan_events ORDER BY created_at,id`;
+    await sql`UPDATE work_shifts SET ends_at=now()-interval '1 second' WHERE id=${shift}`;
+    const result = await load();
+    expect(result).toMatchObject({
+      imported: 1,
+      reconciledScans: 1,
+      reconciledDuplicates: 1,
+    });
+    const [shipment] = await sql`SELECT * FROM shipments`;
+    expect(shipment).toMatchObject({
+      status: "scanned",
+      scanned_by: staff.id,
+      shift_id: shift,
+      scanned_at: original[0].created_at,
+      handed_at: null,
+    });
+    expect(await sql`SELECT * FROM scan_events ORDER BY created_at,id`).toEqual(
+      original,
+    );
+    expect(
+      await sql`SELECT outcome FROM effective_scan_events ORDER BY created_at,id`,
+    ).toEqual([{ outcome: "success" }, { outcome: "duplicate" }]);
+    expect((await myScans(staff, shift)).summary).toMatchObject({
+      success: 1,
+      pending: 0,
+      error: 0,
+    });
+    const d = await dashboard(admin, {});
+    expect(d).toMatchObject({ scanned: 1, unknown: 0, duplicate: 1 });
+    expect(
+      d.hours.reduce(
+        (sum: number, r: { scanned: number }) => sum + r.scanned,
+        0,
+      ),
+    ).toBe(1);
+    expect(await scan(staff, request)).toMatchObject({
+      id: first.id,
+      outcome: "success",
+      pending: false,
+      reconciled: true,
+      shipment: { id: shipment.id, scanned_by: staff.id },
+    });
+    expect((await load()).reconciledScans).toBe(0);
+    expect(await sql`SELECT * FROM scan_reconciliations`).toHaveLength(2);
+    expect(
+      await sql`SELECT * FROM exception_cases WHERE status='open'`,
+    ).toHaveLength(0);
+    await expect(
+      sql`UPDATE scan_reconciliations SET outcome='duplicate'`,
+    ).rejects.toThrow(/append-only/);
+    await expect(scan(staff, input())).rejects.toThrow(/ca đang hoạt động/);
+  });
+  it("quét trước PDF: xem trước báo số chờ, xác nhận tự khớp, báo cáo nguồn giữ quét trước nhập và có thể bàn giao", async () => {
+    await sql`INSERT INTO shipping_carriers(name) VALUES('J&T Express')`;
+    const first = await scan(staff, input("862000000001"));
+    const pdf = analyzeLabelPages([labelText()], "prescan-pdf");
+    const context = {
+      warehouseId: warehouse,
+      shop: "ComsMiu Test",
+      dueDate: todayVN(),
+    };
+    expect((await previewSource(admin, pdf, context)).pendingPrescans).toBe(1);
+    const committed = await commitSource(admin, "test.pdf", pdf, context);
+    expect(committed).toMatchObject({
+      reconciledScans: 1,
+      reconciledDuplicates: 0,
+    });
+    expect(await commitSource(admin, "test.pdf", pdf, context)).toMatchObject({
+      reused: true,
+      reconciledScans: 0,
+    });
+    const report = await sourceReport(admin, committed.id);
+    expect(report.totals).toMatchObject({
+      expected: 1,
+      scanned: 1,
+      unscanned: 0,
+      scannedBeforeImport: 1,
+    });
+    expect(new Date(report.rows[0].scanned_at)).toEqual(new Date(first.at));
+    expect((await scan(other, input("862000000001"))).outcome).toBe(
+      "duplicate",
+    );
+    const handover = await createHandover(admin, {
+      warehouseId: warehouse,
+      carrierId: report.rows[0].current_carrier_id,
+      shipmentIds: [report.rows[0].shipment_id],
+    });
+    await confirmHandover(admin, handover.id);
+    expect((await sourceReport(admin, committed.id)).totals.handed).toBe(1);
+  });
+  it("không khớp sai kho, hãng đã chọn, mã gần giống, mã không hợp lệ hoặc nguồn hủy/chặn", async () => {
+    const [wrongCarrier] =
+      await sql`INSERT INTO shipping_carriers(name) VALUES('GHN') RETURNING id`;
+    await scan(staff, input(undefined, { carrierId: wrongCarrier.id }));
+    await scan(staff, input("OTHER-WAREHOUSE"));
+    await scan(staff, input("CANCELLED0001"));
+    await scan(staff, input("BLOCKED0001"));
+    await scan(staff, input("SPXVNTEST0002"));
+    await scan(staff, input("!"));
+    const result = await load([
+      row(),
+      row({
+        tracking_code: "OTHER-WAREHOUSE",
+        order_id: "OTHER",
+        warehouse: "Kho khác",
+      }),
+      row({
+        tracking_code: "CANCELLED0001",
+        order_id: "CANCELLED",
+        status: "cancelled",
+      }),
+      row({
+        tracking_code: "BLOCKED0001",
+        order_id: "BLOCKED",
+        status: "blocked",
+      }),
+    ]);
+    expect(result).toMatchObject({ imported: 4, reconciledScans: 0 });
+    expect(
+      await sql`SELECT * FROM shipments WHERE scanned_at IS NOT NULL`,
+    ).toHaveLength(0);
+    expect(await sql`SELECT * FROM scan_reconciliations`).toHaveLength(0);
+    expect((await myScans(staff, shift)).summary).toMatchObject({
+      pending: 5,
+      error: 1,
+    });
+  });
+  it("file lỗi không mất mã quét chờ; nhập lại hợp lệ mới tự khớp", async () => {
+    await scan(staff, input());
+    expect((await load([row({ quantity: "0" })])).imported).toBe(0);
+    expect((await myScans(staff, shift)).summary.pending).toBe(1);
+    expect((await load()).reconciledScans).toBe(1);
+  });
+  it("quét và import đồng thời, lặp nhiều yêu cầu: chỉ một lượt thành công và không bỏ lỡ khớp", async () => {
+    const [result, ...scans] = await Promise.all([
+      load(),
+      ...Array.from({ length: 12 }, () => scan(staff, input())),
+    ]);
+    expect(result.imported).toBe(1);
+    expect(scans).toHaveLength(12);
+    expect(
+      (
+        await sql`SELECT count(*)::int n FROM effective_scan_events WHERE outcome='success'`
+      )[0].n,
+    ).toBe(1);
+    expect(
+      (
+        await sql`SELECT count(*)::int n FROM effective_scan_events WHERE outcome='duplicate'`
+      )[0].n,
+    ).toBe(11);
+    expect((await myScans(staff, shift)).summary.pending).toBe(0);
+    expect((await sql`SELECT status FROM shipments`)[0].status).toBe("scanned");
+  });
+});

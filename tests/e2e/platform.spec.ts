@@ -1019,3 +1019,139 @@ test("both scan stations open a valid assigned shift after catalogs arrive", asy
     ).toHaveValue(shiftId);
   }
 });
+
+test("outbound prescan remains pending after reload and shows matched result after file confirmation", async ({
+  page,
+}) => {
+  let saved = false,
+    matched = false;
+  const at = new Date().toISOString();
+  await page.route("**/api/references", (route) =>
+    route.fulfill({
+      json: {
+        prescanReady: true,
+        serverTime: at,
+        warehouses: [{ id, name: "Kho ComsMiu" }],
+        channels: [],
+        carriers: [],
+        shops: [],
+        shifts: [
+          {
+            id,
+            name: "Ca thử",
+            warehouse_id: id,
+            assigned: true,
+            starts_at: new Date(Date.now() - 60000).toISOString(),
+            ends_at: new Date(Date.now() + 3600000).toISOString(),
+          },
+        ],
+        users: [],
+        rules: [],
+        templates: [],
+        retention: [],
+        settings: {},
+      },
+    }),
+  );
+  await page.route("**/api/scans/mine**", (route) =>
+    route.fulfill({
+      json: {
+        summary: {
+          success: matched ? 1 : 0,
+          duplicate: 0,
+          pending: saved && !matched ? 1 : 0,
+          error: 0,
+        },
+        recent: saved
+          ? [
+              {
+                id,
+                raw_code: "862000000001",
+                outcome: matched ? "success" : "unknown",
+                created_at: at,
+                method: "manual",
+              },
+            ]
+          : [],
+      },
+    }),
+  );
+  await page.route("**/api/scans", (route) => {
+    saved = true;
+    return route.fulfill({
+      json: {
+        id,
+        outcome: "unknown",
+        pending: true,
+        message: "ĐÃ LƯU — CHỜ FILE ĐỐI SOÁT",
+        code: "862000000001",
+        at,
+        shipment: null,
+        items: [],
+        hint: null,
+      },
+    });
+  });
+  await page.goto("/#scan");
+  await page
+    .getByRole("textbox", { name: "Mã vận đơn", exact: true })
+    .fill("862000000001");
+  await page.getByRole("button", { name: "Xác nhận", exact: true }).click();
+  await expect(page.locator(".scan-result")).toContainText(
+    "ĐÃ LƯU — CHỜ FILE ĐỐI SOÁT",
+  );
+  await expect(page.locator(".shift-summary")).toContainText(
+    "1 lượt đã lưu · chờ file đối soát",
+  );
+  await page.reload();
+  await expect(page.locator(".recent-scans")).toContainText("862000000001");
+  await expect(page.locator(".recent-scans")).toContainText(
+    "Chờ file đối soát",
+  );
+  matched = true; // Simulates the committed import; real SQL matching is covered in workflow integration tests.
+  await page.reload();
+  await expect(page.locator(".shift-summary .big-number")).toHaveText("1");
+  await expect(page.locator(".shift-summary")).toContainText(
+    "0 lượt đã lưu · chờ file đối soát",
+  );
+  await expect(page.locator(".recent-scans")).toContainText("Thành công");
+});
+
+test("admin can copy incremental prescan SQL without downloading a file", async ({
+  page,
+}) => {
+  await page.route("**/api/references", (route) =>
+    route.fulfill({
+      json: {
+        prescanReady: false,
+        serverTime: new Date().toISOString(),
+        warehouses: [{ id, name: "Kho ComsMiu" }],
+        channels: [{ id, name: "Shopee" }],
+        carriers: [{ id, name: "GHN" }],
+        shops: [],
+        shifts: [],
+        users: [],
+        rules: [],
+        templates: [],
+        retention: [],
+        settings: {},
+      },
+    }),
+  );
+  await page.goto("/#imports/pdf");
+  await expect(
+    page.getByText("Chưa bật đối soát hai chiều · cần nâng cấp database 018", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await page
+    .getByText("Xem và sao chép SQL nâng cấp 018", { exact: true })
+    .click();
+  const text = page.getByRole("textbox", {
+    name: "SQL nâng cấp đối soát hai chiều",
+  });
+  await expect(text).toBeVisible();
+  await expect(text).toHaveValue(/CREATE TABLE scan_reconciliations/);
+  await expect(text).toHaveValue(/BEGIN;/);
+  await expect(text).toHaveValue(/018_prescan_reconciliation.sql/);
+});

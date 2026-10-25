@@ -26,7 +26,7 @@ const sections = [
     meaning:
       "Ghi nhận kiện tại kho bằng nhập tay, súng HID hoặc camera; lưu nhân viên, ca và thời gian máy chủ.",
     action:
-      "Chọn đúng kho và ca được phân công. Chọn Nhập tay để gõ/dán mã rồi Enter/Xác nhận; chọn HID nếu súng gửi Enter/Tab.",
+      "Có thể quét trước hoặc nhập file trước. Mã chưa có nguồn được lưu chờ file đối soát, chưa tính đã tít; khi xác nhận nhập PDF/CSV/XLSX, hệ thống tự khớp đúng mã, kho và hãng đã chọn, giữ người/giờ/ca quét đầu tiên, không cộng lượt lặp. Đơn hủy/chặn hoặc lệch kho/hãng cần kiểm tra. Chọn đúng kho và ca được phân công. Chọn Nhập tay để gõ/dán mã rồi Enter/Xác nhận; chọn HID nếu súng gửi Enter/Tab.",
   },
   {
     page: "shipments",
@@ -44,7 +44,7 @@ const sections = [
     meaning:
       "Tách đơn dự kiến chưa tít, đã tít chưa bàn giao và ngoại lệ cần kiểm tra. Nhật ký lượt quét cho biết cả lượt trùng và lỗi.",
     action:
-      "Tải nhầm file: chọn nguồn → Loại bỏ nguồn → nhập lý do và xác nhận. Vào Hiển thị nguồn → Nguồn đã loại bỏ để xem/khôi phục. Chỉ gỡ nguồn, không xóa vận đơn hay lịch sử, số liệu Tổng quan vẫn giữ nguyên. Mở tab Theo file nguồn PDF để xem tổng phải xuất, còn thiếu quét, chưa bàn giao và ngoại lệ theo đúng từng mã. Đã quét đủ chưa đồng nghĩa bàn giao đủ. Không cộng số kiện giữa các file có mã trùng. Đối chiếu dữ liệu nguồn, nhập bổ sung nếu thiếu, rồi quét lại. Đóng ngoại lệ chỉ ghi nhận kết quả kiểm tra, không tự xác nhận xuất kho.",
+      "Tải nhầm file: chọn nguồn → Loại bỏ nguồn → nhập lý do và xác nhận. Vào Hiển thị nguồn → Nguồn đã loại bỏ để xem/khôi phục. Chỉ gỡ nguồn, không xóa vận đơn hay lịch sử, số liệu Tổng quan vẫn giữ nguyên. Mở tab Theo file nguồn PDF để xem tổng phải xuất, còn thiếu quét, chưa bàn giao và ngoại lệ theo đúng từng mã. Đã quét đủ chưa đồng nghĩa bàn giao đủ. Không cộng số kiện giữa các file có mã trùng. Đối chiếu dữ liệu nguồn và nhập bổ sung nếu thiếu. Mã quét trước sẽ tự khớp khi xác nhận nhập, không cần quét lại. Đóng ngoại lệ chỉ ghi nhận kết quả kiểm tra, không tự xác nhận xuất kho.",
   },
   {
     page: "handover",

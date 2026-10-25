@@ -493,7 +493,7 @@ function ScanHistory() {
         >
           <option value="">Tất cả kết quả</option>
           <option value="duplicate">Quét trùng</option>
-          <option value="unknown">Chưa xác định</option>
+          <option value="unknown">Chờ file đối soát</option>
           <option value="success">Thành công</option>
           <option value="cancelled">Đơn hủy</option>
           <option value="blocked">Bị chặn</option>

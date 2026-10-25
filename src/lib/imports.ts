@@ -1,3 +1,8 @@
+import {
+  lockTrackingCodes,
+  reconcilePrescans,
+  requirePrescanSchema,
+} from "./prescan";
 import { parse } from "csv-parse/sync";
 import { z } from "zod";
 import { db, audit, type User } from "./db";
@@ -179,10 +184,15 @@ export async function importRows(
 ) {
   requireRole(user, managerRoles);
   if (rows.length > 10000) throw new AppError(400, "Tối đa 10.000 dòng");
+  await requirePrescanSchema(db());
   const checked = validateRows(rows, mapping);
   return db().begin(async (tx) => {
     // Imports are infrequent; serialize them to avoid cross-batch item races.
     await tx`SELECT pg_advisory_xact_lock(742918)`;
+    await lockTrackingCodes(
+      tx,
+      checked.valid.map((r) => r.data.tracking_code),
+    );
     const [batch] =
       await tx`INSERT INTO import_batches(filename,user_id,total_rows) VALUES(${filename},${user.id},${rows.length}) RETURNING *`;
     const groups = new Map<string, typeof checked.valid>();
@@ -194,7 +204,9 @@ export async function importRows(
     let imported = 0,
       newShipments = 0,
       updatedShipments = 0,
-      orders = 0;
+      orders = 0,
+      reconciledScans = 0,
+      reconciledDuplicates = 0;
     for (const group of groups.values()) {
       try {
         await tx.savepoint(async (sp) => {
@@ -288,6 +300,11 @@ export async function importRows(
             [...items.values()],
             `Ảnh chụp danh sách sản phẩm từ ${filename}`,
           );
+          const reconciliation = await reconcilePrescans(sp, user, [
+            ...sourceCodes,
+          ]);
+          reconciledScans += reconciliation.matched;
+          reconciledDuplicates += reconciliation.duplicates;
           imported += group.length;
           newShipments += created;
           updatedShipments += updated;
@@ -322,6 +339,8 @@ export async function importRows(
       filename,
     );
     return {
+      reconciledScans,
+      reconciledDuplicates,
       batchId: batch.id,
       total: rows.length,
       imported,

@@ -30,7 +30,7 @@ function candidates(sql: Tx, f: Filters, ids?: string[]) {
     return sql`
     SELECT e.id,e.created_at,e.warehouse_id,w.name warehouse,e.raw_code code,e.outcome,
       e.request_id,e.shipment_id,s.status,s.scanned_at,s.handed_at,s.updated_at,
-      (s.id IS NULL OR (s.status IN ('handed_over','cancelled') AND s.updated_at<${before}::timestamptz))
+      e.outcome<>'unknown' AND (s.id IS NULL OR (s.status IN ('handed_over','cancelled') AND s.updated_at<${before}::timestamptz))
       AND NOT EXISTS(SELECT 1 FROM exception_cases x WHERE
         (x.scan_event_id=e.id OR (e.shipment_id IS NOT NULL AND x.shipment_id=e.shipment_id))
         AND (x.status<>'resolved' OR x.created_at>=${before}::timestamptz OR x.resolved_at>=${before}::timestamptz))

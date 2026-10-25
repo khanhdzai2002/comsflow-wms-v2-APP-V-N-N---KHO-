@@ -1,3 +1,4 @@
+import { scanHistoryRelation } from "../lib/prescan";
 import { createHash } from "node:crypto";
 import { rm, stat } from "node:fs/promises";
 import { createReadStream, createWriteStream } from "node:fs";
@@ -114,11 +115,12 @@ export async function scanExport(date: string, jobId: string) {
   const file = join(tmpdir(), `${jobId}-scans.csv`),
     name = `ComsFlow_scan_${date}.csv`;
   const sql = db();
+  const eventsTable = sql(await scanHistoryRelation(sql));
   const out = createWriteStream(file);
   let count = 0;
   try {
     const [{ n }] =
-      await sql`SELECT count(*)::int n FROM scan_events WHERE created_at>=(${date}::date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh') AND created_at< ((${date}::date+1)::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')`;
+      await sql`SELECT count(*)::int n FROM ${eventsTable} WHERE created_at>=(${date}::date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh') AND created_at< ((${date}::date+1)::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')`;
     out.write(
       "\uFEFF" +
         csv([
@@ -135,9 +137,11 @@ export async function scanExport(date: string, jobId: string) {
           "method",
           "response_json",
           "request_payload_json",
+          "original_outcome",
+          "reconciled_at",
         ]),
     );
-    for await (const rows of sql`SELECT e.*,u.name employee,w.name warehouse,to_char(e.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh','YYYY-MM-DD HH24:MI:SS.US') time_vietnam,to_char(e.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') time_utc FROM scan_events e JOIN users u ON u.id=e.user_id JOIN warehouses w ON w.id=e.warehouse_id WHERE e.created_at>=(${date}::date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh') AND e.created_at<((${date}::date+1)::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh') ORDER BY e.created_at,e.id`.cursor(
+    for await (const rows of sql`SELECT e.*,u.name employee,w.name warehouse,to_char(e.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh','YYYY-MM-DD HH24:MI:SS.US') time_vietnam,to_char(e.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') time_utc FROM ${eventsTable} e JOIN users u ON u.id=e.user_id JOIN warehouses w ON w.id=e.warehouse_id WHERE e.created_at>=(${date}::date::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh') AND e.created_at<((${date}::date+1)::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh') ORDER BY e.created_at,e.id`.cursor(
       500,
     )) {
       for (const e of rows) {
@@ -157,6 +161,8 @@ export async function scanExport(date: string, jobId: string) {
               e.method,
               e.response,
               e.request_payload,
+              e.original_outcome ?? e.outcome,
+              e.reconciled_at ?? "",
             ]),
           )
         )

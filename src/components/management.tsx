@@ -448,7 +448,9 @@ export function Imports({
                 <p>
                   {r.imported}/{r.total} dòng nhập thành công · {r.orders} đơn ·{" "}
                   {r.newShipments} vận đơn mới · {r.updatedShipments} cập nhật ·{" "}
-                  {r.errors.length} lỗi
+                  {r.errors.length} lỗi · {r.reconciledScans ?? 0} mã quét trước
+                  đã khớp thành đã tít · {r.reconciledDuplicates ?? 0} lượt lặp
+                  không cộng trùng
                 </p>
                 {r.errors.length > 0 && (
                   <ExportButtons query={"type=errors&batch=" + r.batchId} />

@@ -181,7 +181,7 @@ export function Badge({ status, label }: { status: string; label?: string }) {
             resolved: "Đã xử lý",
             success: "Thành công",
             duplicate: "Quét trùng",
-            unknown: "Chưa xác định",
+            unknown: "Chờ file đối soát",
             invalid: "Mã không hợp lệ",
             carrier_mismatch: "Sai hãng",
             warehouse_mismatch: "Sai kho",

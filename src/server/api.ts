@@ -1,3 +1,4 @@
+import { scanHistoryRelation } from "@/lib/prescan";
 import { carrierKey, carrierCatalog, identifyCarrier } from "@/lib/carriers";
 import { returnAnalytics } from "@/lib/return-analytics";
 import {
@@ -377,6 +378,7 @@ export async function dispatch(req: NextRequest, trustedUser?: User) {
   requireRole(user, managerRoles);
   const filters = Object.fromEntries(req.nextUrl.searchParams) as Filters;
   if (path === "scans/history" && req.method === "GET") {
+    const eventsTable = sql(await scanHistoryRelation(sql));
     const outcome = z
       .enum([
         "",
@@ -391,7 +393,7 @@ export async function dispatch(req: NextRequest, trustedUser?: User) {
       ])
       .parse(req.nextUrl.searchParams.get("outcome") ?? "");
     return json(
-      await sql`SELECT e.id,e.raw_code,e.outcome,e.created_at,e.method,u.name employee,w.name warehouse,ws.name shift FROM scan_events e JOIN users u ON u.id=e.user_id JOIN warehouses w ON w.id=e.warehouse_id JOIN work_shifts ws ON ws.id=e.shift_id WHERE (${!outcome} OR e.outcome=${outcome}) ORDER BY e.created_at DESC LIMIT 500`,
+      await sql`SELECT e.id,e.raw_code,e.outcome,e.created_at,e.method,u.name employee,w.name warehouse,ws.name shift FROM ${eventsTable} e JOIN users u ON u.id=e.user_id JOIN warehouses w ON w.id=e.warehouse_id JOIN work_shifts ws ON ws.id=e.shift_id WHERE (${!outcome} OR e.outcome=${outcome}) ORDER BY e.created_at DESC LIMIT 500`,
     );
   }
   if (path === "dashboard" && req.method === "GET")
@@ -403,9 +405,10 @@ export async function dispatch(req: NextRequest, trustedUser?: User) {
     const [shipment] =
       await sql`SELECT s.*,o.external_id,c.name channel,ca.name carrier,sh.name shop,w.name warehouse,u.name employee,h.name handover_employee FROM shipments s JOIN orders o ON o.id=s.order_id JOIN sales_channels c ON c.id=o.channel_id JOIN shops sh ON sh.id=o.shop_id JOIN warehouses w ON w.id=s.warehouse_id JOIN shipping_carriers ca ON ca.id=s.carrier_id LEFT JOIN users u ON u.id=s.scanned_by LEFT JOIN users h ON h.id=s.handed_by WHERE s.id=${shipmentId}`;
     if (!shipment) throw new AppError(404, "Không tìm thấy vận đơn");
+    const eventsTable = sql(await scanHistoryRelation(sql));
     const [items, events, logs] = await Promise.all([
       sql`SELECT * FROM order_items WHERE order_id=${shipment.order_id}`,
-      sql`SELECT e.*,u.name employee FROM scan_events e JOIN users u ON u.id=e.user_id WHERE e.shipment_id=${shipmentId} ORDER BY e.created_at`,
+      sql`SELECT e.*,u.name employee FROM ${eventsTable} e JOIN users u ON u.id=e.user_id WHERE e.shipment_id=${shipmentId} ORDER BY e.created_at`,
       sql`SELECT a.*,u.name employee FROM audit_logs a LEFT JOIN users u ON u.id=a.user_id WHERE a.entity_id IN (${shipmentId},${shipment.order_id}) ORDER BY a.created_at DESC`,
     ]);
     return json({ shipment, items, events, logs });

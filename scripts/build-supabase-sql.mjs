@@ -90,3 +90,41 @@ console.log(
     names.length +
     " checksum-verified migrations.",
 );
+
+// Small incremental upgrade: copy directly from the app, no file download needed.
+const upgradeName = "018_prescan_reconciliation.sql";
+const prerequisiteNames = names.filter((name) => name < upgradeName);
+const upgradeSource = await readFile("migrations/" + upgradeName, "utf8");
+const upgradeChecksum = createHash("sha256")
+  .update(upgradeSource)
+  .digest("hex");
+await writeFile(
+  "supabase/upgrade-018.sql",
+  `-- ComsFlow: select project lyeyjfvxmqruszgfrjze and take a database backup first.
+-- Adds reconciliation records/indexes only; no existing scans or shipments are changed.
+BEGIN;
+SET LOCAL search_path=public,extensions;
+SELECT pg_advisory_xact_lock(742917);
+DO $upgrade$
+DECLARE old_checksum text;
+BEGIN
+ IF to_regclass('public.schema_migrations') IS NULL THEN
+  RAISE EXCEPTION 'Missing ComsFlow migration ledger. Stop and verify the target.';
+ END IF;
+ IF (SELECT count(*) FROM public.schema_migrations WHERE name IN (${prerequisiteNames
+   .map(literal)
+   .join(",")}))<>${prerequisiteNames.length} THEN
+  RAISE EXCEPTION 'Expected all previous ComsFlow migrations. Stop and verify the target.';
+ END IF;
+ SELECT checksum INTO old_checksum FROM public.schema_migrations WHERE name=${literal(upgradeName)};
+ IF old_checksum IS NOT NULL THEN
+  IF old_checksum<>${literal(upgradeChecksum)} THEN RAISE EXCEPTION 'Migration 018 checksum mismatch'; END IF;
+ ELSE
+  EXECUTE $migration018$${upgradeSource}$migration018$;
+  INSERT INTO public.schema_migrations(name,checksum) VALUES(${literal(upgradeName)},${literal(upgradeChecksum)});
+ END IF;
+END $upgrade$;
+COMMIT;
+SELECT to_regclass('public.effective_scan_events') IS NOT NULL AS prescan_ready;
+`,
+);

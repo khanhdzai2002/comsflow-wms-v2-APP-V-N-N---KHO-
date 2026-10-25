@@ -349,7 +349,7 @@ export function Dashboard({
             [data.waiting, "Đã tít, chưa bàn giao", "waiting", "blue"],
             [data.exceptions, "Vận đơn ngoại lệ", "exceptions", "red"],
             [data.duplicate, "Lượt quét trùng", "duplicate", "red"],
-            [data.unknown, "Lượt quét chưa xác định", "unknown", "orange"],
+            [data.unknown, "Lượt chờ file đối soát", "unknown", "orange"],
           ].map(([count, label, status, color]) => (
             <button
               className="alert-row"

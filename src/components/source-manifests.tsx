@@ -458,7 +458,8 @@ export function PdfSourceImport({ refs }: { refs: Row }) {
                           {p.existingShipments} vận đơn đã có trong hệ thống,
                           trong đó {p.alreadyScanned} đã quét và{" "}
                           {p.alreadyHanded} đã bàn giao. Lịch sử và ngày xuất
-                          hiện có được giữ nguyên.
+                          hiện có được giữ nguyên. {p.pendingPrescans ?? 0} mã
+                          đã quét trước đang chờ khớp khi xác nhận lưu file.
                         </p>
                       )}
                       {p.differentDueDates > 0 && (
@@ -549,7 +550,9 @@ export function PdfSourceImport({ refs }: { refs: Row }) {
                     <div className="notice import-result-success" role="status">
                       {r.result.reused ? "Đã mở nguồn cũ" : "Đã lưu nguồn"}:{" "}
                       {r.result.total} vận đơn · {r.result.newShipments} vận đơn
-                      tạo mới.
+                      tạo mới. {r.result.reconciledScans ?? 0} mã quét trước đã
+                      khớp thành đã tít; {r.result.reconciledDuplicates ?? 0}{" "}
+                      lượt lặp được nhận diện, không cộng trùng.
                     </div>
                   )}
                   {r.saveError && (

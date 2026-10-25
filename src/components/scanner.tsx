@@ -190,7 +190,10 @@ export function Scanner({
             <h2>
               <ScanLine size={20} /> Trạm quét
             </h2>
-            <p>Một quy trình xác minh cho camera, súng quét và nhập tay</p>
+            <p>
+              Quét trước hoặc nhập file trước đều được. Mã chưa có nguồn được
+              lưu chờ đối soát tự động.
+            </p>
           </div>
           <span className="live-label">
             <span className="live-dot" />{" "}
@@ -308,10 +311,12 @@ export function Scanner({
               className="text-button"
               onClick={() => onNavigate("imports")}
             >
-              Nhập PDF / Excel / CSV trước
+              Nhập file PDF / Excel / CSV đối soát
             </button>
           ) : (
-            <span>Nhờ quản lý nhập PDF / Excel / CSV trước khi quét.</span>
+            <span>
+              Có thể quét trước; nhờ quản lý nhập file nguồn để tự đối soát.
+            </span>
           )}
         </div>
         <div className="scan-input-section">
@@ -516,11 +521,21 @@ export function Scanner({
                 )}
               </>
             ) : (
-              <p>
-                {result.hint
-                  ? `Gợi ý ${result.hint.source === "format" ? "mẫu mã" : "tiền tố"}: ${result.hint.carrier} / ${result.hint.channel ?? "Chưa xác định"}. Chưa xác minh, cần đối soát.`
-                  : "Không suy đoán thông tin đơn khi chưa có dữ liệu nguồn."}
-              </p>
+              <div>
+                {result.outcome === "unknown" && (
+                  <p>
+                    Đã lưu mã, người quét và thời gian trên máy chủ. Khi nhập
+                    file cùng mã, đúng kho và hãng đã chọn, hệ thống tự khớp
+                    thành đã tít. Chưa tính là đã tít hoặc đã bàn giao khi còn
+                    chờ đối soát.
+                  </p>
+                )}
+                <p>
+                  {result.hint
+                    ? `Gợi ý ${result.hint.source === "format" ? "mẫu mã" : "tiền tố"}: ${result.hint.carrier} / ${result.hint.channel ?? "Chưa xác định"}. Chưa xác minh, cần đối soát.`
+                    : "Thông tin đơn sẽ được bổ sung khi khớp file nguồn."}
+                </p>
+              </div>
             )}
             <small>
               Sự kiện: {result.id} · {formatTime(result.at)}
@@ -560,6 +575,9 @@ export function Scanner({
           </span>
           <div className="big-number">{mine?.summary?.success ?? "—"}</div>
           <p>vận đơn quét thành công</p>
+          <p>
+            <b>{mine?.summary?.pending ?? 0}</b> lượt đã lưu · chờ file đối soát
+          </p>
           <div className="summary-pair">
             <span>
               <b>{mine?.summary?.duplicate ?? 0}</b> Quét trùng

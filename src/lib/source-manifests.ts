@@ -1,3 +1,8 @@
+import {
+  lockTrackingCodes,
+  pendingSourceCount,
+  reconcilePrescans,
+} from "./prescan";
 import { warehouseIdSchema } from "./domain";
 import { z } from "zod";
 import { db, audit, type User, type Tx } from "./db";
@@ -109,6 +114,7 @@ export async function previewSource(user: User, pdf: SourcePdf, raw: unknown) {
       ...pdf,
       uniqueShipments: pdf.labels.length,
       existingShipments: 0,
+      pendingPrescans: 0,
       alreadyScanned: 0,
       alreadyHanded: 0,
       differentDueDates: 0,
@@ -132,6 +138,12 @@ export async function previewSource(user: User, pdf: SourcePdf, raw: unknown) {
     carrierUnresolved: false,
     uniqueShipments: pdf.labels.length,
     existingShipments: existing.length,
+    pendingPrescans: await pendingSourceCount(
+      sql,
+      pdf.labels.map((l) => l.trackingCode),
+      c.warehouseId,
+      c.carrierId,
+    ),
     alreadyScanned: existing.filter((r) => r.scanned_at).length,
     alreadyHanded: existing.filter((r) => r.handed_at).length,
     differentDueDates: existing.filter(
@@ -159,6 +171,8 @@ export async function commitSource(
     // Same lock as CSV/XLSX: global tracking identity cannot race across import types.
     await tx`SELECT pg_advisory_xact_lock(742918)`;
     const c = await resolveContext(tx, pdf, raw);
+    const codes = pdf.labels.map((l) => l.trackingCode);
+    await lockTrackingCodes(tx, codes);
     const [old] =
       await tx`SELECT m.*,to_char(m.due_date,'YYYY-MM-DD') due_date,s.name shop,c.name channel,a.archived_at FROM source_manifests m LEFT JOIN source_manifest_archives a ON a.manifest_id=m.id JOIN shops s ON s.id=m.shop_id JOIN sales_channels c ON c.id=s.channel_id WHERE m.file_hash=${pdf.hash}`;
     if (old) {
@@ -178,7 +192,11 @@ export async function commitSource(
           409,
           "File này đã lưu với thông tin nguồn khác. Mở danh sách nguồn cũ để kiểm tra; không tạo bản trùng.",
         );
+      await tx`SELECT id FROM shipments WHERE tracking_code IN ${tx(codes)} ORDER BY id FOR UPDATE`;
+      const reconciliation = await reconcilePrescans(tx, user, codes);
       return {
+        reconciledScans: reconciliation.matched,
+        reconciledDuplicates: reconciliation.duplicates,
         id: old.id,
         reused: true,
         total: pdf.labels.length,
@@ -186,7 +204,6 @@ export async function commitSource(
       };
     }
     // Match handover's UUID lock order to avoid deadlocks with concurrent confirmations.
-    const codes = pdf.labels.map((l) => l.trackingCode);
     await tx`SELECT id FROM shipments WHERE tracking_code IN ${tx(codes)} ORDER BY id FOR UPDATE`;
     const existing = await existingRows(tx, pdf),
       issues = conflicts(existing, pdf, c);
@@ -248,6 +265,13 @@ export async function commitSource(
       for (const shipment of shipments)
         byCode.set(shipment.tracking_code, shipment);
     }
+    const reconciliation = await reconcilePrescans(tx, user, codes);
+    if (reconciliation.matched) {
+      const refreshed =
+        await tx`SELECT * FROM shipments WHERE tracking_code IN ${tx(codes)}`;
+      for (const shipment of refreshed)
+        byCode.set(shipment.tracking_code, shipment);
+    }
     await tx`INSERT INTO source_manifest_items ${tx(
       pdf.labels.map((label) => {
         const shipment = byCode.get(label.trackingCode)!;
@@ -288,6 +312,8 @@ export async function commitSource(
       "Lưu danh sách nguồn PDF; đếm mỗi mã vận đơn một lần, giữ nguyên lịch sử hiện có",
     );
     return {
+      reconciledScans: reconciliation.matched,
+      reconciledDuplicates: reconciliation.duplicates,
       id: manifest.id,
       reused: false,
       total: pdf.labels.length,
