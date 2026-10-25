@@ -91,40 +91,50 @@ console.log(
     " checksum-verified migrations.",
 );
 
-// Small incremental upgrade: copy directly from the app, no file download needed.
-const upgradeName = "018_prescan_reconciliation.sql";
-const prerequisiteNames = names.filter((name) => name < upgradeName);
-const upgradeSource = await readFile("migrations/" + upgradeName, "utf8");
-const upgradeChecksum = createHash("sha256")
-  .update(upgradeSource)
-  .digest("hex");
-await writeFile(
-  "supabase/upgrade-018.sql",
-  `-- ComsFlow: select project lyeyjfvxmqruszgfrjze and take a database backup first.
--- Adds reconciliation records/indexes only; no existing scans or shipments are changed.
+// Incremental bundles can be copied from the app without downloading files.
+for (const upgradeName of [
+  "018_prescan_reconciliation.sql",
+  "019_prescan_runtime_permissions.sql",
+]) {
+  const prerequisiteNames = names.filter((name) => name < upgradeName);
+  const sections = [];
+  for (const name of names.filter((name) => name >= upgradeName)) {
+    const source = await readFile("migrations/" + name, "utf8");
+    const checksum = createHash("sha256").update(source).digest("hex");
+    const delimiter = "$upgrade_" + checksum.slice(0, 16) + "$";
+    if (source.includes(delimiter)) throw new Error("SQL delimiter collision");
+    sections.push(`DO $apply_upgrade$
+DECLARE old_checksum text;
+BEGIN
+ SELECT checksum INTO old_checksum FROM public.schema_migrations WHERE name=${literal(name)};
+ IF old_checksum IS NOT NULL AND old_checksum<>${literal(checksum)} THEN
+  RAISE EXCEPTION 'Migration checksum mismatch: ${name}';
+ END IF;
+ IF old_checksum IS NULL OR ${name === "019_prescan_runtime_permissions.sql" ? "true" : "false"} THEN
+  EXECUTE ${delimiter}\n${source}\n${delimiter};
+  INSERT INTO public.schema_migrations(name,checksum) VALUES(${literal(name)},${literal(checksum)}) ON CONFLICT(name) DO NOTHING;
+ END IF;
+END $apply_upgrade$;`);
+  }
+  await writeFile(
+    "supabase/upgrade-" + upgradeName.slice(0, 3) + ".sql",
+    `-- ComsFlow: select project lyeyjfvxmqruszgfrjze and take a database backup first.
+-- Adds schema/runtime grants only; no existing scans or shipments are changed.
 BEGIN;
 SET LOCAL search_path=public,extensions;
 SELECT pg_advisory_xact_lock(742917);
-DO $upgrade$
-DECLARE old_checksum text;
+DO $upgrade_guard$
 BEGIN
  IF to_regclass('public.schema_migrations') IS NULL THEN
   RAISE EXCEPTION 'Missing ComsFlow migration ledger. Stop and verify the target.';
  END IF;
- IF (SELECT count(*) FROM public.schema_migrations WHERE name IN (${prerequisiteNames
-   .map(literal)
-   .join(",")}))<>${prerequisiteNames.length} THEN
+ IF (SELECT count(*) FROM public.schema_migrations WHERE name IN (${prerequisiteNames.map(literal).join(",")}))<>${prerequisiteNames.length} THEN
   RAISE EXCEPTION 'Expected all previous ComsFlow migrations. Stop and verify the target.';
  END IF;
- SELECT checksum INTO old_checksum FROM public.schema_migrations WHERE name=${literal(upgradeName)};
- IF old_checksum IS NOT NULL THEN
-  IF old_checksum<>${literal(upgradeChecksum)} THEN RAISE EXCEPTION 'Migration 018 checksum mismatch'; END IF;
- ELSE
-  EXECUTE $migration018$${upgradeSource}$migration018$;
-  INSERT INTO public.schema_migrations(name,checksum) VALUES(${literal(upgradeName)},${literal(upgradeChecksum)});
- END IF;
-END $upgrade$;
+END $upgrade_guard$;
+${sections.join("\n")}
 COMMIT;
 SELECT to_regclass('public.effective_scan_events') IS NOT NULL AS prescan_ready;
 `,
-);
+  );
+}

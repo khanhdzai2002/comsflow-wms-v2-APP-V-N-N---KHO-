@@ -145,3 +145,13 @@ Luồng hai chiều:
 - Tác vụ dọn nhật ký giữ mọi lượt `unknown` gốc, bao gồm lượt chờ và lượt đã tự khớp, để không xóa bằng chứng đối soát. Chưa có công cụ dọn riêng cho các bằng chứng này.
 
 Acceptance sau triển khai và migration: mở ca → quét một mã fixture chưa có nguồn → F5 còn **Chờ file đối soát** → xác nhận nhập file chứa mã đó → nhật ký và Tổng quan hiện đã tít đúng một lần, đúng giờ/người quét cũ → quét lại báo trùng. Thử thêm mã lệch kho/hãng và nguồn hủy để kiểm tra chúng không thành công. Chỉ thử fixture trên staging; production dùng dữ liệu nghiệp vụ do chủ kho chủ động chọn, không tự thêm dữ liệu thử.
+
+## Sửa quyền Hyperdrive sau đối soát hai chiều (019)
+
+Nếu schema 018 đã có nhưng Tổng quan/nhật ký báo lỗi, tài khoản server `comsflow_connection_check` được cấp quyền theo danh sách cũ có thể thiếu SELECT trên view `effective_scan_events` và SELECT/INSERT + RLS policy trên bảng `scan_reconciliations`. Kết nối database vẫn thành công; PostgreSQL trả `42501` khi đọc view mới. Các kiểm thử dùng chủ database trước đây không phát hiện thiếu sót này.
+
+Bản `2026-10-25.prescan-permissions-1` phát hiện quyền thiếu, giữ thông báo nâng cấp riêng cho trường hợp chưa có schema, và hiện SQL **sửa quyền 019** cho Admin ngay trên app. Sau khi chọn đúng project `lyeyjfvxmqruszgfrjze` và có bản sao lưu, chạy `supabase/upgrade-019.sql` trong SQL Editor bằng tài khoản chủ project. Đây là cấp quyền cho server; không thay mật khẩu, không sửa/xóa dữ liệu vận đơn, không cấp quyền cho `anon`/`authenticated`, không bật BYPASSRLS. SQL thêm policy cho server và chỉ SELECT/INSERT trên nhật ký đối soát; UPDATE/DELETE vẫn bị chặn. Migration 018 giữ nguyên checksum. SQL sửa quyền có thể chạy lại ngay cả khi ledger đã ghi 019.
+
+`supabase/upgrade-018.sql` mới chứa cả 018 + 019 để nâng từ bản 17 trong một lần. Fresh bootstrap có 19 migration. Script `scripts/sql/grant-hyperdrive-runtime.sql` cũng cấp đúng quyền đối soát nếu resource được tạo trước tài khoản Hyperdrive. Nếu tài khoản runtime là role tùy chỉnh khác, Admin cần rà soát/cấp quyền cho đúng role; script không tự cấp quyền cho role bất kỳ.
+
+Chưa thực hiện SQL sửa quyền trên production từ workspace. Sau khi chủ project chạy SQL, F5: thông báo thiếu quyền biến mất; Tổng quan tải được, lượt quét cũ giữ nguyên. Nếu chưa lên bản giao diện mới, có thể chạy SQL sửa quyền ngay từ SQL Editor; bản app cũ cũng đọc lại view được sau khi cấp quyền.

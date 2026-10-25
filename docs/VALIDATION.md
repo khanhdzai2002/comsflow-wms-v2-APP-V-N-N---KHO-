@@ -160,3 +160,11 @@ Kiểm thử PostgreSQL cục bộ, chỉ database `_test`: quét trước CSV, 
 Browser desktop/mobile dùng API fixture: mã quét chờ tồn tại qua F5 và đổi trạng thái sau kết quả nhập đã commit; Admin đọc/sao chép SQL nâng cấp không qua tải file. Các kiểm thử file PDF thật trong browser worker vẫn chạy. API fixture không thay thế nghiệm thu Supabase/Cloudflare thực tế.
 
 Kết quả: `npm run typecheck`, `npm run lint`, **319 tests / 23 files**, **26 Playwright scenarios** (desktop + mobile), Vite build, Node worker build và Wrangler dry-run đạt. Thử upgrade từ schema 17 trên database cục bộ: chạy hai lần, giữ nguyên lượt quét năm 2020, nhập nguồn mới khớp đúng người/ca và biểu đồ ghi vào ngày quét 2020. Gửi lại cùng request ID sau khi đã khớp trả trạng thái đã khớp, không tạo lượt mới. Truy cập health production từ môi trường này bị proxy từ chối CONNECT 403; chưa xác nhận rollout/SQL nâng cấp trên hosted app.
+
+## 2026-10-25 — quyền Hyperdrive cho đối soát (019)
+
+Tái hiện `42501` bằng role `comsflow_connection_check` có LOGIN nhưng không SUPERUSER/BYPASSRLS, có quyền và policies trên các bảng cũ, chưa có quyền trên bảng/view 018. Đọc bảng scan cũ được nhưng đọc view mới thất bại. Sau migration 019 chạy hai lần, chính role đó tự khớp nguồn bằng INSERT vào nhật ký + policy RLS, dashboard và nhật ký cá nhân đọc đúng đã tít; lịch sử gốc không đổi; UPDATE/DELETE nhật ký đối soát vẫn không được cấp; không có grants cho PUBLIC/anon/authenticated. Role fixture chỉ tồn tại trong transaction ở database `_test` và luôn rollback, không đổi role có sẵn. Kiểm thử không thay thế nghiệm thu hosted app.
+
+Bổ sung trường kiểm tra quyền trong references, lỗi rõ thay lỗi database chung cho đường đọc nhật ký/Tổng quan và guard nhập nguồn. Giao diện có thông báo/SQL sửa quyền 019 riêng khi schema đã tồn tại, không yêu cầu tạo lại 018. Cập nhật script bootstrap/nâng cấp và grant role; migration 018 không bị sửa.
+
+Đã đạt: typecheck, lint, **320 tests / 24 files**, **28 Playwright scenarios** (desktop/mobile), client build, Node worker build, Wrangler dry-run. Chưa chạy SQL 019 trên production; chủ project cần thực hiện bước cấp quyền trong SQL Editor. Bản mới hiển thị nội dung SQL ngay trong app và không yêu cầu tải tệp.

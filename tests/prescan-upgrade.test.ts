@@ -19,7 +19,7 @@ beforeAll(async () => {
   await sql`CREATE SCHEMA public`;
   await sql`CREATE TABLE schema_migrations(name text PRIMARY KEY,checksum text NOT NULL,applied_at timestamptz DEFAULT now())`;
   for (const name of (await readdir("migrations"))
-    .filter((n) => n.endsWith(".sql") && !n.startsWith("018_"))
+    .filter((n) => n.endsWith(".sql") && n < "018_")
     .sort()) {
     const source = await readFile("migrations/" + name, "utf8");
     await sql.unsafe(source);
@@ -76,7 +76,7 @@ it("nâng cấp từ 17 migration giữ lịch sử, chạy lại được và k
   }
   expect(await prescanReady(sql)).toBe(true);
   expect((await sql`SELECT count(*)::int n FROM schema_migrations`)[0].n).toBe(
-    18,
+    19,
   );
   expect(await sql`SELECT * FROM scan_events`).toEqual(old);
   expect(await sql`SELECT * FROM scan_reconciliations`).toHaveLength(0);

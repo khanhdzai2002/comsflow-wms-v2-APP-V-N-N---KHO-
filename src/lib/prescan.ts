@@ -2,20 +2,35 @@ import { audit, db, type Tx, type User } from "./db";
 import { AppError } from "./domain";
 
 type Sql = Tx | ReturnType<typeof db>;
+export async function prescanAccess(sql: Sql) {
+  const [row] = await sql`WITH objects AS (
+  SELECT to_regclass('public.effective_scan_events') view_id,to_regclass('public.scan_reconciliations') log_id
+ ) SELECT view_id IS NOT NULL AND log_id IS NOT NULL AS "schemaReady",
+  coalesce(has_table_privilege(view_id,'SELECT') AND has_table_privilege(log_id,'SELECT'),false) AS "canRead",
+  coalesce(has_table_privilege(log_id,'INSERT'),false) AS "canWrite"
+ FROM objects`;
+  return row as { schemaReady: boolean; canRead: boolean; canWrite: boolean };
+}
+const permissionMessage =
+  "Database đã kết nối nhưng tài khoản Hyperdrive thiếu quyền đối soát mới. Admin chạy SQL sửa quyền 019 trong thông báo trên app; không cần đổi mật khẩu hoặc tạo lại database.";
 export async function prescanReady(sql: Sql) {
-  const [row] =
-    await sql`SELECT to_regclass('public.effective_scan_events') IS NOT NULL AS ready`;
-  return !!row.ready;
+  return (await prescanAccess(sql)).schemaReady;
 }
 export async function requirePrescanSchema(sql: Sql) {
-  if (!(await prescanReady(sql)))
+  const access = await prescanAccess(sql);
+  if (!access.schemaReady)
     throw new AppError(
       503,
       "Chưa bật đối soát quét trước. Admin mở thông báo nâng cấp 018, sao lưu database và chạy SQL trong đúng project Supabase trước khi nhập file xuất kho.",
     );
+  if (!access.canRead || !access.canWrite)
+    throw new AppError(503, permissionMessage);
 }
 export async function scanHistoryRelation(sql: Sql) {
-  return (await prescanReady(sql)) ? "effective_scan_events" : "scan_events";
+  const access = await prescanAccess(sql);
+  if (!access.schemaReady) return "scan_events";
+  if (!access.canRead) throw new AppError(503, permissionMessage);
+  return "effective_scan_events";
 }
 // Both import paths take the same sorted locks BEFORE locking/inserting shipments.
 // This also serializes the otherwise unprotected gap where no shipment exists yet.
@@ -32,6 +47,7 @@ export async function pendingSourceCount(
   carrier: string,
 ) {
   if (!codes.length || !(await prescanReady(sql))) return 0;
+  await requirePrescanSchema(sql);
   const [row] =
     await sql`SELECT count(DISTINCT upper(btrim(coalesce(e.response->>'code',e.raw_code))))::int n
     FROM scan_events e LEFT JOIN scan_reconciliations r ON r.scan_event_id=e.id

@@ -57,6 +57,16 @@ BEGIN
       'CREATE POLICY comsflow_server_access ON public.%I TO comsflow_connection_check USING (true) WITH CHECK (true)', t
     );
   END LOOP;
+  -- Migration 018 objects are optional on older installations. The reconciliation
+  -- log only needs append/read access, never UPDATE/DELETE or browser grants.
+  IF to_regclass('public.scan_reconciliations') IS NOT NULL
+     AND to_regclass('public.effective_scan_events') IS NOT NULL THEN
+    GRANT SELECT ON public.effective_scan_events TO comsflow_connection_check;
+    GRANT SELECT,INSERT ON public.scan_reconciliations TO comsflow_connection_check;
+    DROP POLICY IF EXISTS comsflow_server_access ON public.scan_reconciliations;
+    CREATE POLICY comsflow_server_access ON public.scan_reconciliations
+      TO comsflow_connection_check USING (true) WITH CHECK (true);
+  END IF;
 END
 $permissions$;
 COMMIT;

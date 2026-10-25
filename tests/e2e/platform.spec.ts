@@ -1155,3 +1155,61 @@ test("admin can copy incremental prescan SQL without downloading a file", async 
   await expect(text).toHaveValue(/BEGIN;/);
   await expect(text).toHaveValue(/018_prescan_reconciliation.sql/);
 });
+
+test("existing prescan schema with missing runtime permissions shows SQL 019 repair and a specific dashboard error", async ({
+  page,
+}) => {
+  await page.route("**/api/references", (route) =>
+    route.fulfill({
+      json: {
+        prescanReady: true,
+        prescanPermissionsReady: false,
+        serverTime: new Date().toISOString(),
+        warehouses: [{ id, name: "Kho ComsMiu" }],
+        channels: [{ id, name: "Shopee" }],
+        carriers: [{ id, name: "GHN" }],
+        shops: [],
+        shifts: [],
+        users: [],
+        rules: [],
+        templates: [],
+        retention: [],
+        settings: {},
+      },
+    }),
+  );
+  await page.route("**/api/dashboard**", (route) =>
+    route.fulfill({
+      status: 503,
+      json: {
+        error:
+          "Database đã kết nối nhưng tài khoản Hyperdrive thiếu quyền đối soát mới. Admin chạy SQL sửa quyền 019 trong thông báo trên app.",
+      },
+    }),
+  );
+  await page.goto("/#dashboard");
+  await expect(
+    page.getByText("Database đã kết nối · cần cấp quyền đối soát 019", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Chưa bật đối soát hai chiều · cần nâng cấp database 018", {
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await expect(page.getByRole("alert")).toContainText(
+    "thiếu quyền đối soát mới",
+  );
+  await page
+    .getByText("Xem và sao chép SQL sửa quyền 019", { exact: true })
+    .click();
+  const sql = page.getByRole("textbox", {
+    name: "SQL nâng cấp đối soát hai chiều",
+  });
+  await expect(sql).toHaveValue(/GRANT SELECT ON public.effective_scan_events/);
+  await expect(sql).toHaveValue(
+    /GRANT SELECT,INSERT ON public.scan_reconciliations/,
+  );
+  await expect(sql).toHaveValue(/CREATE POLICY comsflow_server_access/);
+});

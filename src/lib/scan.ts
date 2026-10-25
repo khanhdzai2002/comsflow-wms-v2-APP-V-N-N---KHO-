@@ -1,4 +1,8 @@
-import { lockTrackingCodes, prescanReady } from "./prescan";
+import {
+  lockTrackingCodes,
+  prescanReady,
+  requirePrescanSchema,
+} from "./prescan";
 import { detectCarrier } from "./carriers";
 import { db, type User, type Tx } from "./db";
 import {
@@ -38,6 +42,7 @@ export async function scan(user: User, input: unknown) {
       )
         throw new AppError(409, "Mã yêu cầu đã gắn với dữ liệu khác");
       if (prior.outcome === "unknown" && (await prescanReady(tx))) {
+        await requirePrescanSchema(tx);
         const [match] =
           await tx`SELECT * FROM scan_reconciliations WHERE scan_event_id=${prior.id}`;
         if (match) {

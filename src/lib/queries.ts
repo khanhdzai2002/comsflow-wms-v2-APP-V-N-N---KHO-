@@ -1,4 +1,4 @@
-import { prescanReady, scanHistoryRelation } from "./prescan";
+import { prescanAccess, scanHistoryRelation } from "./prescan";
 import { db, type User } from "./db";
 import { todayVN, managerRoles, requireRole, AppError } from "./domain";
 import { z } from "zod";
@@ -104,9 +104,12 @@ export async function referenceData(user: User) {
     user.role === "staff"
       ? []
       : await sql`SELECT id,name,email,role,active FROM users ORDER BY name`;
+  const prescan = await prescanAccess(sql);
   return {
     appRevision: APP_REVISION,
-    prescanReady: await prescanReady(sql),
+    prescanReady: prescan.schemaReady,
+    prescanPermissionsReady:
+      !prescan.schemaReady || (prescan.canRead && prescan.canWrite),
     ...(user.role !== "staff" ? await workerHealth() : {}),
     serverTime: (await sql`SELECT clock_timestamp() AS at`)[0].at,
     warehouses,
