@@ -12,6 +12,7 @@ import { previewSource, commitSource } from "./source-manifests";
 import { verifyStoredPdf } from "./stored-file-verification";
 import { environment, requestContext } from "../server/context";
 import {
+  SOURCE_ANALYZER_VERSION,
   MAX_SOURCE_PDF_PAGES,
   MAX_SOURCE_PDF_TEXT,
   SOURCE_PAGE_BATCH,
@@ -32,12 +33,20 @@ function check(job: any) {
     throw new AppError(409, "Tác vụ đã dừng. Chọn lại PDF gốc.");
 }
 type Progress = {
+  analyzerVersion?: string;
   totalPages: number;
   characters: number;
   chunks: Record<string, string>;
   state: SourceAnalyzerState;
   parsed?: SourcePdf;
 };
+function checkAnalyzer(progress?: Progress) {
+  if (progress && progress.analyzerVersion !== SOURCE_ANALYZER_VERSION)
+    throw new AppError(
+      409,
+      "Bộ đọc PDF đã được cập nhật. Tải lại trang và chọn lại file gốc để đọc bằng bản mới; kết quả cũ chưa được lưu vào vận đơn.",
+    );
+}
 export async function appendSourcePages(user: User, id: string, raw: unknown) {
   requireRole(user, managerRoles);
   const input = z
@@ -63,6 +72,7 @@ export async function appendSourcePages(user: User, id: string, raw: unknown) {
         "Cần tải xong PDF và chưa xác nhận nhập trước khi gửi nội dung trang.",
       );
     const progress = job.payload.browserPdf as Progress | undefined;
+    checkAnalyzer(progress);
     const offset = progress?.state.pageCount ?? 0;
     if (progress && progress.totalPages !== input.totalPages)
       throw new AppError(
@@ -96,6 +106,7 @@ export async function appendSourcePages(user: User, id: string, raw: unknown) {
         ? analyzer.finish()
         : undefined;
     const next: Progress = {
+      analyzerVersion: SOURCE_ANALYZER_VERSION,
       totalPages: input.totalPages,
       characters,
       chunks: { ...progress?.chunks, [String(input.offset)]: fingerprint },
@@ -118,6 +129,7 @@ export async function processSourceBrowser(
   if (commit && initial.route.endsWith("/commit"))
     return { ...initial.result, _jobId: id };
   const progress = initial.payload.browserPdf as Progress | undefined;
+  checkAnalyzer(progress);
   if (!progress?.parsed || progress.state.pageCount !== progress.totalPages)
     throw new AppError(
       409,

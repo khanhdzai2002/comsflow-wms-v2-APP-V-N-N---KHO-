@@ -1,3 +1,4 @@
+import { formatSourcePages } from "../src/lib/pdf-labels";
 import { describe, it, expect } from "vitest";
 import { analyzeLabelPages, parseSourcePdf } from "../src/lib/pdf-source";
 import {
@@ -8,6 +9,7 @@ import {
   makePdf,
   labelText,
   bestLabelText,
+  bestImageLogoLabelText,
   largeSourcePdf,
   continuationText,
   splitLabelText,
@@ -233,6 +235,86 @@ describe("Đếm tem PDF bằng danh tính mã, không theo số trang/lần in"
     const r = analyzeLabelPages([labelText(), bestLabelText()], "x");
     expect(r.detectedCarriers).toEqual(["J&T Express", "BEST Express"]);
     expect(r.errors).toHaveLength(1);
+  });
+  it("BEST logo hình ảnh: đầy đủ form giao hàng và tham chiếu in lặp vẫn nhận đúng hãng", async () => {
+    const result = await parseSourcePdf(
+      makePdf([bestImageLogoLabelText(), continuationText()]),
+    );
+    expect(result).toMatchObject({
+      pageCount: 2,
+      orderCount: 1,
+      continuationPages: 1,
+      errors: [],
+      detectedCarriers: ["BEST Express"],
+      detectedChannels: ["TikTok Shop"],
+    });
+    expect(result.carrierGroups).toEqual([
+      {
+        carrier: "BEST Express",
+        channel: "TikTok Shop",
+        shipments: 1,
+        orders: 1,
+        pages: [1, 2],
+      },
+    ]);
+    expect(result.labels[0].trackingCode).toBe("TTVN0000000001");
+  });
+  it("không nhận TTVN khi logo không có text mà form chỉ có một phần hoặc mã/order không được xác nhận lặp", () => {
+    const text = bestImageLogoLabelText();
+    for (const incomplete of [
+      text.replace("Nguoi gui:", "Unknown field:"),
+      text.replace("Nguoi nhan:", "Unknown field:"),
+      text.replace("Trong luong:", "Unknown field:"),
+      text.replace("Thoi gian dat hang:", "Unknown field:"),
+      text.replace("Ngay giao du kien:", "Unknown field:"),
+      text.replace("TTVN0000000001\nTTVN0000000001", "TTVN0000000001"),
+      text.replace(/Order ID: 586000000000000001$/, ""),
+    ])
+      expect(
+        analyzeLabelPages([incomplete], "incomplete").errors.length,
+      ).toBeGreaterThan(0);
+  });
+  it("chỉ rõ hãng và trang của file trộn, gồm trang sản phẩm liền sau; không ép J&T thành BEST", () => {
+    const result = analyzeLabelPages(
+      [
+        bestImageLogoLabelText(),
+        continuationText(),
+        labelText(undefined, "586000000000000002"),
+        continuationText("586000000000000002"),
+      ],
+      "mixed",
+    );
+    expect(result).toMatchObject({
+      pageCount: 4,
+      orderCount: 2,
+      continuationPages: 2,
+    });
+    expect(result.carrierGroups).toEqual([
+      {
+        carrier: "BEST Express",
+        channel: "TikTok Shop",
+        shipments: 1,
+        orders: 1,
+        pages: [1, 2],
+      },
+      {
+        carrier: "J&T Express",
+        channel: "TikTok Shop",
+        shipments: 1,
+        orders: 1,
+        pages: [3, 4],
+      },
+    ]);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({
+      page: 0,
+      message: expect.stringContaining("J&T Express: 1 vận đơn, trang 3–4"),
+    });
+  });
+  it("rút gọn dãy trang chính xác, không lặp trang và không bỏ trang sản phẩm", () => {
+    expect(formatSourcePages([7, 3, 2, 1, 7, 4, 10])).toBe("1–4, 7, 10");
+    expect(formatSourcePages([1, 3, 5, 7], 2)).toBe("1, 3, …");
+    expect(formatSourcePages([])).toBe("");
   });
   it("PDF hơn 17,3 MB / 1.800 trang đếm đủ mã, không bị giới hạn 5 MB hay 300 trang", async () => {
     const file = largeSourcePdf();

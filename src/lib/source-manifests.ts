@@ -122,8 +122,10 @@ export async function previewSource(user: User, pdf: SourcePdf, raw: unknown) {
       existingManifestId: null,
       existingManifestArchived: false,
       carrierUnresolved: true,
-      channelName: null,
-      carrierName: null,
+      channelName:
+        pdf.detectedChannels.length === 1 ? pdf.detectedChannels[0] : null,
+      carrierName:
+        pdf.detectedCarriers.length === 1 ? pdf.detectedCarriers[0] : null,
       carrierId: null,
     };
   const c = await resolveContext(sql, pdf, raw);

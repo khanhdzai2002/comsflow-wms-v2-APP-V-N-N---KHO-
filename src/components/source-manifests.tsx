@@ -1,4 +1,5 @@
 "use client";
+import { formatSourcePages } from "@/lib/pdf-labels";
 import { useEffect, useRef, useState } from "react";
 import { FileText, Trash2, RotateCcw } from "lucide-react";
 import { summarizePdfBatch, type PdfBatchPreview } from "@/lib/source-batch";
@@ -299,10 +300,10 @@ export function PdfSourceImport({ refs }: { refs: Row }) {
         <div className="notice">
           Shopee và TikTok Shop là hai sàn riêng. Tự nhận dạng Shopee/SPX hoặc
           GHN bằng Mã vận đơn SPXVN hoặc GHN (G + 7 chữ/số) và Mã đơn hàng khớp
-          OrderSN; TikTok/J&T bằng mã 86, TikTok/BEST bằng mã TTVN và dấu hãng
-          BEST. Nhận dạng dựa trên nội dung tem, không dựa tên file. PDF ảnh/mẫu
-          khác bị chặn. PDF chỉ nhập mã đơn/kiện; bổ sung sản phẩm bằng
-          Excel/CSV.
+          OrderSN; TikTok/J&T bằng mã 86, TikTok/BEST bằng mã TTVN in lặp và dấu
+          hãng BEST hoặc đầy đủ biểu mẫu giao hàng TikTok. Nhận dạng dựa trên
+          nội dung tem, không dựa tên file. PDF ảnh/mẫu khác bị chặn. PDF chỉ
+          nhập mã đơn/kiện; bổ sung sản phẩm bằng Excel/CSV.
         </div>
         <ErrorBox message={error} />
         {!!records.length && (
@@ -421,7 +422,12 @@ export function PdfSourceImport({ refs }: { refs: Row }) {
                         · Sàn:{" "}
                         <strong>{p.channelName ?? "Chưa nhận dạng"}</strong> ·
                         Hãng:{" "}
-                        <strong>{p.carrierName ?? "Chưa nhận dạng"}</strong>
+                        <strong>
+                          {p.carrierName ??
+                            (p.detectedCarriers?.length
+                              ? p.detectedCarriers.join(", ")
+                              : "Chưa nhận dạng")}
+                        </strong>
                       </>
                     )}
                   </p>
@@ -448,6 +454,25 @@ export function PdfSourceImport({ refs }: { refs: Row }) {
                         đơn. Số trang PDF có thể lớn hơn số kiện; không bắt buộc
                         dòng Qty Total nằm cùng trang với mã vận đơn.
                       </p>
+                      {p.carrierGroups?.length > 1 && (
+                        <div className="notice warning">
+                          <strong>Hãng thực tế đọc được trong PDF</strong>
+                          <ul>
+                            {p.carrierGroups.map((group: Row) => (
+                              <li key={group.channel + group.carrier}>
+                                <b>{group.carrier}</b> · {group.channel} ·{" "}
+                                {group.shipments} vận đơn · Trang{" "}
+                                {formatSourcePages(group.pages)}
+                              </li>
+                            ))}
+                          </ul>
+                          <p>
+                            Chọn hãng trên form không lọc bớt trang. Tách các
+                            trang theo hãng thành PDF riêng rồi đọc lại; giữ cả
+                            trang sản phẩm tiếp theo của từng tem.
+                          </p>
+                        </div>
+                      )}
                       {p.carrierUnresolved ? (
                         <p>
                           Chưa kiểm tra vận đơn đã có vì chưa nhận dạng được một
@@ -478,7 +503,7 @@ export function PdfSourceImport({ refs }: { refs: Row }) {
                       <ErrorBox
                         message={
                           issues.length
-                            ? `${p.errors.length} trang lỗi · ${p.conflicts.length} mã xung đột. Chưa thể lưu nguồn; cần xử lý hết lỗi.`
+                            ? `${p.errors.filter((e: Row) => e.page > 0).length} trang lỗi · ${p.errors.filter((e: Row) => !e.page).length} lỗi toàn file · ${p.conflicts.length} mã xung đột. Chưa thể lưu nguồn; cần xử lý hết lỗi.`
                             : p.carrierUnresolved
                               ? "Chưa nhận dạng được một sàn/hãng duy nhất; chưa thể lưu."
                               : ""

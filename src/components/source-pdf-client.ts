@@ -1,6 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 import { requestJob } from "./job-client";
-import { MAX_SOURCE_PDF_BYTES } from "@/lib/source-limits";
+import {
+  MAX_SOURCE_PDF_BYTES,
+  SOURCE_ANALYZER_VERSION,
+} from "@/lib/source-limits";
 
 type Progress = (message: string) => void;
 const fileHashes = new WeakMap<File, Promise<string>>();
@@ -91,7 +94,13 @@ export async function browserSourcePdfJob(
   const ordered = Object.fromEntries(
     Object.entries(context).sort(([a], [b]) => a.localeCompare(b)),
   );
-  const key = "comsflow-browser-pdf:" + hash + ":" + JSON.stringify(ordered);
+  const key =
+    "comsflow-browser-pdf:" +
+    SOURCE_ANALYZER_VERSION +
+    ":" +
+    hash +
+    ":" +
+    JSON.stringify(ordered);
   let cached: { id?: string; requestKey: string };
   try {
     cached = JSON.parse(localStorage.getItem(key) || "null") || {

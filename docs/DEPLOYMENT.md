@@ -155,3 +155,11 @@ Bản `2026-10-25.prescan-permissions-1` phát hiện quyền thiếu, giữ th�
 `supabase/upgrade-018.sql` mới chứa cả 018 + 019 để nâng từ bản 17 trong một lần. Fresh bootstrap có 19 migration. Script `scripts/sql/grant-hyperdrive-runtime.sql` cũng cấp đúng quyền đối soát nếu resource được tạo trước tài khoản Hyperdrive. Nếu tài khoản runtime là role tùy chỉnh khác, Admin cần rà soát/cấp quyền cho đúng role; script không tự cấp quyền cho role bất kỳ.
 
 Chưa thực hiện SQL sửa quyền trên production từ workspace. Sau khi chủ project chạy SQL, F5: thông báo thiếu quyền biến mất; Tổng quan tải được, lượt quét cũ giữ nguyên. Nếu chưa lên bản giao diện mới, có thể chạy SQL sửa quyền ngay từ SQL Editor; bản app cũ cũng đọc lại view được sau khi cấp quyền.
+
+## BEST PDF có logo hình ảnh và cảnh báo lẫn hãng (2026-10-26)
+
+Bản `2026-10-26.best-pdf-1` nhận thêm mẫu TikTok/BEST có tên hãng ở dạng logo ảnh, không có text BEST/TT-VN-BEST để trích xuất. Mã TTVN vẫn phải in lặp, chỉ có một mã và một Order ID duy nhất; khi thiếu tên hãng dạng text phải có đầy đủ các trường người gửi, người nhận, trọng lượng, thời gian đặt hàng, ngày giao dự kiến và Order ID in lặp. Vẫn kiểm tra bảng sản phẩm của khối tem/trang liền sau. Không nhận hãng chỉ từ tiền tố hoặc tên file.
+
+Preview file trộn hiển thị từng hãng/sàn, số vận đơn và dãy trang (gồm trang sản phẩm tiếp theo), giữ tên sàn đã nhận diện thay vì hiện cả sàn/hãng đều chưa nhận dạng. Chọn một hãng trên form là kiểm tra ngữ cảnh, không lọc bỏ các trang hãng khác. File thực sự trộn hãng vẫn phải tách thành PDF riêng trước khi lưu; không ép các trang J&T sang BEST. Nếu cần, mở PDF gốc → In/Lưu thành PDF → Trang tùy chỉnh theo dãy trang của từng nhóm.
+
+Đổi phiên bản analyzer trong cache browser và snapshot job. Khi lên bản mới, Ctrl+F5 rồi chọn lại PDF: tạo phiên đọc mới và đọc toàn bộ trang thay vì tái dùng kết quả lỗi cũ. Snapshot cũ chưa commit bị chặn với hướng dẫn đọc lại; kết quả đã commit vẫn trả lại đúng khi retry. Không cần migration hay đổi secrets. Nếu dùng Node processor cho đường PDF truyền thống, cần cập nhật worker cùng bản mã.

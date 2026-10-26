@@ -6,6 +6,7 @@ import {
   labelText,
   continuationText,
   shopeeLabelText,
+  bestImageLogoLabelText,
 } from "../pdf-fixture";
 import { analyzeLabelPages } from "../../src/lib/pdf-labels";
 const id = "11111111-1111-4111-8111-111111111111";
@@ -125,7 +126,7 @@ test("return import remains directly identifiable as its own selected tab", asyn
   ).toHaveAttribute("aria-selected", "true");
 });
 
-test("real browser PDF worker reads JT/SPX, resumes sent pages and retries a lost save without a processor", async ({
+test("real browser PDF worker reads JT/SPX/BEST, resumes sent pages and retries a lost save without a processor", async ({
   page,
 }) => {
   const files = [
@@ -136,6 +137,13 @@ test("real browser PDF worker reads JT/SPX, resumes sent pages and retries a los
         labelText(),
         continuationText(),
         labelText("862000000002"),
+      ]),
+    },
+    {
+      name: "BEST-image-logo.pdf",
+      mimeType: "application/pdf",
+      buffer: makePdf([
+        bestImageLogoLabelText("TTVN0000000001", "586000000000000003"),
       ]),
     },
     {
@@ -263,7 +271,7 @@ test("real browser PDF worker reads JT/SPX, resumes sent pages and retries a los
   ).toHaveCount(1);
   await read.click();
   await expect(page.locator(".source-preview[data-state='ready']")).toHaveCount(
-    2,
+    3,
     { timeout: 30000 },
   );
   const previews = page.locator(".source-preview");
@@ -277,23 +285,23 @@ test("real browser PDF worker reads JT/SPX, resumes sent pages and retries a los
     "SPX Express",
   );
   await expect(page.locator(".pdf-batch-summary")).toContainText(
-    "3 vận đơn duy nhất",
+    "4 vận đơn duy nhất",
   );
   expect(commits).toHaveLength(0);
   await page
-    .getByRole("button", { name: "Lưu 2 file hợp lệ", exact: true })
+    .getByRole("button", { name: "Lưu 3 file hợp lệ", exact: true })
     .click();
   await expect(page.locator(".source-preview[data-state='saved']")).toHaveCount(
-    1,
+    2,
   );
   await page
     .getByRole("button", { name: /Lưu 1 file hợp lệ \/ thử lại file chưa lưu/ })
     .click();
   await expect(page.locator(".source-preview[data-state='saved']")).toHaveCount(
-    2,
+    3,
   );
-  expect(jobs.size).toBe(2);
-  expect(commits).toHaveLength(2);
+  expect(jobs.size).toBe(3);
+  expect(commits).toHaveLength(3);
   expect(
     [...jobs.values()].find((j) => j.filename.startsWith("JT")).attempts,
   ).toBe(2);
@@ -1212,4 +1220,154 @@ test("existing prescan schema with missing runtime permissions shows SQL 019 rep
     /GRANT SELECT,INSERT ON public.scan_reconciliations/,
   );
   await expect(sql).toHaveValue(/CREATE POLICY comsflow_server_access/);
+});
+
+test("mixed BEST and JT PDF identifies exact carrier pages and cannot be forced into the selected BEST carrier", async ({
+  page,
+}) => {
+  const texts = [
+    bestImageLogoLabelText(),
+    continuationText(),
+    labelText(undefined, "586000000000000002"),
+    continuationText("586000000000000002"),
+  ];
+  const parsed = analyzeLabelPages(texts, "fixture-mixed");
+  let uploads = 0,
+    oldCacheReads = 0,
+    commits = 0;
+  const oldId = "88888888-8888-4888-8888-888888888888";
+  await page.route("**/api/references", (route) =>
+    route.fulfill({
+      json: {
+        serverTime: new Date().toISOString(),
+        warehouses: [{ id, name: "Kho ComsMiu" }],
+        channels: [{ id, name: "TikTok Shop" }],
+        carriers: [{ id, name: "BEST Express" }],
+        shops: [],
+        shifts: [],
+        users: [],
+        rules: [],
+        templates: [],
+        retention: [],
+        settings: {},
+      },
+    }),
+  );
+  await page.route("https://storage.example.test/**", (route) =>
+    route.fulfill({ json: { Key: "fixture", Id: jobId } }),
+  );
+  await page.route("**/api/jobs/**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/api/jobs/uploads") {
+      uploads++;
+      return route.fulfill({
+        json: {
+          id: jobId,
+          status: "waiting_upload",
+          path: "input/test",
+          token: "fixture",
+          url: "https://storage.example.test",
+          key: "fixture-public",
+          bucket: "comsflow-private",
+        },
+      });
+    }
+    if (path.includes(oldId)) {
+      oldCacheReads++;
+      return route.fulfill({ status: 404, json: { error: "Old fixture" } });
+    }
+    if (path.endsWith("/finalize"))
+      return route.fulfill({ json: { id: jobId, status: "queued" } });
+    if (path.endsWith("/pdf-pages"))
+      return route.fulfill({ json: { receivedPages: 4, totalPages: 4 } });
+    if (path.endsWith("/pdf-preview"))
+      return route.fulfill({
+        json: {
+          ...parsed,
+          uniqueShipments: parsed.labels.length,
+          existingShipments: 0,
+          alreadyScanned: 0,
+          alreadyHanded: 0,
+          pendingPrescans: 0,
+          differentDueDates: 0,
+          conflicts: [],
+          channelName: "TikTok Shop",
+          carrierName: null,
+          carrierUnresolved: true,
+        },
+      });
+    if (path.endsWith("/commit")) {
+      commits++;
+      return route.fulfill({
+        status: 409,
+        json: { error: "Mixed fixture cannot commit" },
+      });
+    }
+    return route.fulfill({
+      json: {
+        id: jobId,
+        route: "sources/browser/preview",
+        status: "queued",
+        receivedPages: 0,
+      },
+    });
+  });
+  await page.goto("/#imports/pdf");
+  await page
+    .getByRole("combobox", { name: "Hãng của file PDF", exact: true })
+    .selectOption(id);
+  const dueDate = await page
+    .getByLabel("Ngày dự kiến xuất của PDF", { exact: true })
+    .inputValue();
+  const bytes = makePdf(texts);
+  // Pre-upgrade cache key must not reuse a stale preview after the analyzer changes.
+  await page.evaluate(
+    async ({ bytes, dueDate, id, oldId }) => {
+      const digest = await crypto.subtle.digest(
+        "SHA-256",
+        new Uint8Array(bytes),
+      );
+      const hash = Array.from(new Uint8Array(digest), (b) =>
+        b.toString(16).padStart(2, "0"),
+      ).join("");
+      const ordered = {
+        carrierId: id,
+        channel: "",
+        dueDate,
+        shop: "ComsMiu",
+        warehouseId: id,
+      };
+      localStorage.setItem(
+        "comsflow-browser-pdf:" + hash + ":" + JSON.stringify(ordered),
+        JSON.stringify({ id: oldId, requestKey: crypto.randomUUID() }),
+      );
+    },
+    { bytes: [...bytes], dueDate, id, oldId },
+  );
+  await page
+    .getByLabel("File PDF nguồn", { exact: true })
+    .setInputFiles({
+      name: "BEST-named-but-mixed.pdf",
+      mimeType: "application/pdf",
+      buffer: bytes,
+    });
+  await page
+    .getByRole("button", { name: "Đọc và đếm PDF", exact: true })
+    .click();
+  const preview = page.locator(".source-preview");
+  await expect(preview).toContainText("Hãng thực tế đọc được trong PDF");
+  await expect(preview).toContainText(
+    "BEST Express · TikTok Shop · 1 vận đơn · Trang 1–2",
+  );
+  await expect(preview).toContainText(
+    "J&T Express · TikTok Shop · 1 vận đơn · Trang 3–4",
+  );
+  await expect(preview).toContainText("0 trang lỗi · 1 lỗi toàn file");
+  await expect(preview).toContainText("BEST Express, J&T Express");
+  await expect(
+    page.getByRole("button", { name: /Lưu \d+ file hợp lệ/ }),
+  ).toHaveCount(0);
+  expect(uploads).toBe(1);
+  expect(oldCacheReads).toBe(0);
+  expect(commits).toBe(0);
 });

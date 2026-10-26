@@ -90,3 +90,15 @@ export function largeSourcePdf(
     paddingBytes,
   );
 }
+
+// Synthetic TikTok shipping form whose carrier logo has no extractable text.
+// No private sample data is copied into this fixture.
+export function bestImageLogoLabelText(
+  code = "TTVN0000000001",
+  order = "586000000000000001",
+) {
+  return (
+    "Nguoi gui: Test shop\nNguoi nhan: Test recipient\nTrong luong: 0.1 KG\nThoi gian dat hang: 2026-10-26 08:00\nNgay giao du kien: 27-10-2026\n" +
+    labelText(code, order)
+  );
+}

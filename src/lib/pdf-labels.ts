@@ -7,6 +7,28 @@ export type SourceLabel = {
   channel: SourceChannel;
   pages: number[];
 };
+export type SourceCarrierGroup = {
+  carrier: SourceCarrier;
+  channel: SourceChannel;
+  shipments: number;
+  orders: number;
+  pages: number[];
+};
+
+export function formatSourcePages(pages: number[], maxRanges = 12) {
+  const sorted = [...new Set(pages)].sort((a, b) => a - b);
+  const ranges: string[] = [];
+  for (let i = 0; i < sorted.length; i++) {
+    const start = sorted[i];
+    while (sorted[i + 1] === sorted[i] + 1) i++;
+    ranges.push(start === sorted[i] ? String(start) : `${start}–${sorted[i]}`);
+  }
+  return (
+    ranges.slice(0, maxRanges).join(", ") +
+    (ranges.length > maxRanges ? ", …" : "")
+  );
+}
+
 export type SourcePdf = {
   hash: string;
   pageCount: number;
@@ -15,6 +37,7 @@ export type SourcePdf = {
   continuationPages: number;
   detectedCarriers: SourceCarrier[];
   detectedChannels: SourceChannel[];
+  carrierGroups: SourceCarrierGroup[];
   orderCount: number;
   errors: { page: number; message: string }[];
 };
@@ -207,6 +230,18 @@ export function sourceLabelAnalyzer(hash: string, state?: SourceAnalyzerState) {
       ),
     ];
     const hasProducts = /Product\s+Name/i.test(normalized);
+    // Some genuine TikTok/BEST labels render the carrier logo as an image and
+    // omit the TT-VN-BEST service text. A prefix alone is insufficient: require
+    // the complete shipping form plus repeated barcode/order references instead.
+    const shippingTemplate =
+      /Nguoi\s*gui\s*:?/i.test(shopeeText) &&
+      /Nguoi\s*nhan\s*:?/i.test(shopeeText) &&
+      /Trong\s*luong\s*:/i.test(shopeeText) &&
+      /Thoi\s*gian\s*dat\s*hang\s*:/i.test(shopeeText) &&
+      /Ngay\s*giao\s*du\s*kien\s*:/i.test(shopeeText) &&
+      [...normalized.matchAll(/Order\s*ID\s*:\s*\d{15,25}(?!\d)/gi)].length >=
+        2;
+    const bestTemplate = bestMarker || shippingTemplate;
     const productContinuation =
       hasProducts || /Qty\s+Total\s*:/i.test(normalized);
     // A continuation has no shipping-label block. Do not swallow an unsupported
@@ -240,7 +275,7 @@ export function sourceLabelAnalyzer(hash: string, state?: SourceAnalyzerState) {
     }
     finishBlock();
     if (
-      (carrier === "BEST Express" && !bestMarker) ||
+      (carrier === "BEST Express" && !bestTemplate) ||
       (carrier === "J&T Express" && bestMarker) ||
       candidates.length !== 1 ||
       matches.length < 2 ||
@@ -249,7 +284,7 @@ export function sourceLabelAnalyzer(hash: string, state?: SourceAnalyzerState) {
       errors.push({
         page,
         message:
-          "Chưa nhận dạng chắc chắn tem: cần một mã J&T (86 + 10 số) hoặc BEST (TTVN và dấu hãng BEST) in lặp, cùng một Order ID. Trang sản phẩm tiếp theo cần Order ID khớp tem liền trước; trang ảnh/mẫu khác cần file gốc hoặc CSV/XLSX.",
+          "Chưa nhận dạng chắc chắn tem: cần một mã J&T (86 + 10 số) hoặc BEST (TTVN và dấu hãng BEST hoặc đầy đủ biểu mẫu giao hàng TikTok) in lặp, cùng một Order ID. Trang sản phẩm tiếp theo cần Order ID khớp tem liền trước; trang ảnh/mẫu khác cần file gốc hoặc CSV/XLSX.",
       });
       return;
     }
@@ -269,16 +304,33 @@ export function sourceLabelAnalyzer(hash: string, state?: SourceAnalyzerState) {
     const result = [...labels.values()];
     const detectedCarriers = [...new Set(result.map((l) => l.carrier))];
     const detectedChannels = [...new Set(result.map((l) => l.channel))];
+    const carrierGroups: SourceCarrierGroup[] = [];
+    for (const carrier of detectedCarriers)
+      for (const channel of detectedChannels) {
+        const group = result.filter(
+          (label) => label.carrier === carrier && label.channel === channel,
+        );
+        if (group.length)
+          carrierGroups.push({
+            carrier,
+            channel,
+            shipments: group.length,
+            orders: new Set(group.map((l) => l.orderId)).size,
+            pages: [...new Set(group.flatMap((l) => l.pages))].sort(
+              (a, b) => a - b,
+            ),
+          });
+      }
     if (detectedCarriers.length > 1 || detectedChannels.length > 1)
       errors.push({
         page: 0,
-        message:
-          "File chứa nhiều hãng vận chuyển hoặc nhiều sàn. Hãy tách mỗi file theo một sàn/hãng; có thể chọn nhiều file Shopee/SPX/GHN và TikTok/J&T/BEST cùng lần nhập.",
+        message: `PDF có nhiều hãng/sàn: ${carrierGroups.map((g) => `${g.channel} / ${g.carrier}: ${g.shipments} vận đơn, trang ${formatSourcePages(g.pages, 6)}`).join("; ")}. Tách mỗi file theo một sàn/hãng. Chọn hãng trên form không tự loại các trang hãng khác.`,
       });
     return {
       hash,
       detectedCarriers,
       detectedChannels,
+      carrierGroups,
       pageCount,
       labels: result,
       duplicatePages,

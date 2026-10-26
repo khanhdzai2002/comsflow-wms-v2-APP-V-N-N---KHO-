@@ -168,3 +168,13 @@ Tái hiện `42501` bằng role `comsflow_connection_check` có LOGIN nhưng kh�
 Bổ sung trường kiểm tra quyền trong references, lỗi rõ thay lỗi database chung cho đường đọc nhật ký/Tổng quan và guard nhập nguồn. Giao diện có thông báo/SQL sửa quyền 019 riêng khi schema đã tồn tại, không yêu cầu tạo lại 018. Cập nhật script bootstrap/nâng cấp và grant role; migration 018 không bị sửa.
 
 Đã đạt: typecheck, lint, **320 tests / 24 files**, **28 Playwright scenarios** (desktop/mobile), client build, Node worker build, Wrangler dry-run. Chưa chạy SQL 019 trên production; chủ project cần thực hiện bước cấp quyền trong SQL Editor. Bản mới hiển thị nội dung SQL ngay trong app và không yêu cầu tải tệp.
+
+## 2026-10-26 — mẫu BEST logo ảnh và chẩn đoán file trộn
+
+Đọc riêng tệp chủ kho gửi, không commit tệp hay dữ liệu riêng vào Git. File tải lên lần này có 208 trang: parser cũ ghi 198 BEST + 1 J&T, bỏ sót tem BEST ở trang 133 do logo hãng chỉ có ảnh, cùng cảnh báo file trộn. Quan sát ảnh render trực tiếp xác nhận trang 133 là BEST; trang 196 là tem J&T thật, trang 197 là phần sản phẩm tiếp theo của đơn đó.
+
+Sau sửa, chạy cả Node parser và browser PDF worker Chromium trên tệp thật: 200 đơn/200 vận đơn, 199 BEST và 1 J&T, 8 trang sản phẩm tiếp theo, không trùng, không có trang lỗi; chỉ còn lỗi cấp file vì trộn hãng. Nhóm BEST bao phủ trang 1–195, 198–208; nhóm J&T trang 196–197. Kiểm tra phần text trích từ các trang BEST riêng: 206 trang/199 vận đơn/7 trang tiếp theo, không lỗi. Đây là kiểm tra đọc và phân nhóm, chưa ghi dữ liệu mẫu vào hệ thống hosted.
+
+Fixture tổng hợp không dùng dữ liệu khách: nhận form TikTok/BEST đầy đủ khi logo không trích text; từ chối thiếu từng dấu biểu mẫu, mã/order không in lặp; phân nhóm đúng cả trang tiếp theo; vẫn chặn file trộn. Regression job kiểm tra snapshot cũ phải đọc lại và kết quả đã commit không mất. Browser desktop/mobile đọc PDF bằng worker thật cho J&T, SPX, BEST logo ảnh; file trộn hiển thị chính xác nhóm/trang và không lưu được dù chọn BEST; cache trước nâng cấp không được tái dùng.
+
+Kết quả: typecheck, lint, **325 tests / 24 files**, **30 Playwright scenarios**, client build, Node worker build và Wrangler dry-run. Chưa xác nhận rollout hosted app từ môi trường này; chủ kho cần chờ Cloudflare Ready, tải lại giao diện và chọn lại PDF.

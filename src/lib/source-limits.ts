@@ -9,3 +9,6 @@ export const SOURCE_REQUEST_TIMEOUT_MS = 180_000;
 export const SOURCE_PAGE_BATCH = 20;
 export const SOURCE_PAGE_BATCH_BYTES = 192 * 1024;
 export const SOURCE_PAGE_TEXT_LIMIT = 100_000;
+
+// Bump when persisted analyzer snapshots/previews must be rebuilt from the PDF.
+export const SOURCE_ANALYZER_VERSION = "2026-10-26.best-template-1";

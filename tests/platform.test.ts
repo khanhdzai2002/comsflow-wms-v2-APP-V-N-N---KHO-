@@ -541,3 +541,44 @@ it("exports all 1940 rows, preserving leading-zero codes and Vietnam day boundar
       .digest("hex"),
   ).toBe(result.result.sha256);
 });
+
+it("browser PDF re-reads stale analyzer snapshots after a parser update, while committed results remain durable", async () => {
+  const text = labelText();
+  const { job } = await upload(makePdf([text]), {
+    route: "sources/browser/preview",
+  });
+  await appendSourcePages(admin, job.id, {
+    offset: 0,
+    totalPages: 1,
+    pages: [text],
+  });
+  await processSourceBrowser(admin, job.id, false);
+  await sql`UPDATE data_jobs SET payload=jsonb_set(payload,'{browserPdf,analyzerVersion}','"old-parser"'::jsonb) WHERE id=${job.id}`;
+  await expect(processSourceBrowser(admin, job.id, false)).rejects.toThrow(
+    "Bộ đọc PDF đã được cập nhật",
+  );
+  await expect(processSourceBrowser(admin, job.id, true)).rejects.toMatchObject(
+    { status: 409 },
+  );
+  await expect(
+    appendSourcePages(admin, job.id, {
+      offset: 0,
+      totalPages: 1,
+      pages: [text],
+    }),
+  ).rejects.toMatchObject({ status: 409 });
+  expect(await sql`SELECT id FROM shipments`).toHaveLength(0);
+  const { job: fresh } = await upload(makePdf([text]), {
+    route: "sources/browser/preview",
+  });
+  await appendSourcePages(admin, fresh.id, {
+    offset: 0,
+    totalPages: 1,
+    pages: [text],
+  });
+  await processSourceBrowser(admin, fresh.id, false);
+  const committed = await processSourceBrowser(admin, fresh.id, true);
+  await sql`UPDATE data_jobs SET payload=jsonb_set(payload,'{browserPdf,analyzerVersion}','"old-parser"'::jsonb) WHERE id=${fresh.id}`;
+  expect(await processSourceBrowser(admin, fresh.id, true)).toEqual(committed);
+  expect(await sql`SELECT id FROM shipments`).toHaveLength(1);
+});
