@@ -1,3 +1,12 @@
+import { saveReturnOperationSources } from "./return-operation-sources";
+import {
+  recordPhysicalReturn,
+  reconcileReturnReceipts,
+} from "./return-receipts";
+import {
+  returnOperationsStatus,
+  requireReturnCaseAccess,
+} from "./return-operations-access";
 import { warehouseIdSchema } from "./domain";
 import { createHash, randomUUID } from "node:crypto";
 import { carrierCatalog, identifyCarrier } from "./carriers";
@@ -8,15 +17,11 @@ import {
   sourceChanges,
   classifyReason,
 } from "./return-source";
+import { exactReturnScanCode } from "./return-identifiers";
+import { deriveReturnFacts } from "./return-facts";
 import { z } from "zod";
 import { db, audit, type User, type Tx } from "./db";
-import {
-  AppError,
-  managerRoles,
-  requireRole,
-  normalizeCode,
-  validCode,
-} from "./domain";
+import { AppError, managerRoles, requireRole } from "./domain";
 import type { ReturnFile, ReturnRow } from "./return-table";
 import { returnProcessing, platformApproved } from "./return-domain";
 
@@ -325,9 +330,10 @@ export async function commitReturns(
     for (const [external, group] of groups) {
       const current = existingByExternal.get(external);
       const caseId = current?.id ?? randomUUID();
-      const merged = current
-        ? mergeReturnSource(current.source_data, group)
-        : group;
+      const merged =
+        current && !current.source_inactive
+          ? mergeReturnSource(current.source_data, group)
+          : group;
       const row = merged.find((x) => x.itemKey === group[0].itemKey)!;
       const digest = sourceDigest(merged);
       const fields = sourceChanges(current?.source_data ?? [], merged);
@@ -361,6 +367,7 @@ export async function commitReturns(
       );
       cases.push({
         id: caseId,
+        source_was_inactive: !!current?.source_inactive,
         is_new: !current,
         changed: fields.length > 0,
         external_id: external,
@@ -463,6 +470,14 @@ export async function commitReturns(
     await tx`INSERT INTO return_events(case_id,actor_id,action,data)
       SELECT x.case_id,${user.id},'import',x.data FROM jsonb_to_recordset(${tx.json(events)}) AS x(case_id uuid,data jsonb)`;
     await tx`INSERT INTO return_import_results(import_id,new_count,updated_count,unchanged_count,status_count,finance_count) VALUES(${batch.id},${created},${updated},${unchanged},${statusCount},${financeCount})`;
+    await saveReturnOperationSources(tx, user, file, cases, batch.id);
+    await reconcileReturnReceipts(
+      tx,
+      user,
+      [...parcels.values()].map((p) => p.tracking_code),
+      file.rows.map((r) => r.order),
+      { warehouseId: c.warehouseId, limit: 2000 },
+    );
     await audit(
       tx,
       user,
@@ -512,7 +527,7 @@ export async function returnList(user: User, raw: unknown, all = false) {
           : f.dateType === "imported"
             ? sql`(SELECT created_at FROM return_imports WHERE id=r.last_import_id)`
             : sql`r.requested_at`;
-      const scope = sql`(${!f.warehouse} OR r.warehouse_id=${f.warehouse || null}::uuid)
+      const scope = sql`(${user.role !== "staff"} OR r.assigned_to=${user.id} OR EXISTS(SELECT 1 FROM return_parcels own WHERE own.case_id=r.id AND own.received_by=${user.id})) AND (${!f.warehouse} OR r.warehouse_id=${f.warehouse || null}::uuid)
         AND (${!f.channel} OR ch.name=${f.channel}) AND (${!f.shop} OR sh.name=${f.shop})
         AND (${!f.from} OR (${scopeDate} AT TIME ZONE 'Asia/Ho_Chi_Minh')::date>=${f.from ?? null}::date)
         AND (${!f.to} OR (${scopeDate} AT TIME ZONE 'Asia/Ho_Chi_Minh')::date<=${f.to ?? null}::date)`;
@@ -687,6 +702,8 @@ export async function returnList(user: User, raw: unknown, all = false) {
 export async function returnDetail(user: User, id: string) {
   z.uuid().parse(id);
   const sql = db();
+  if ((await returnOperationsStatus(sql)).ready)
+    await requireReturnCaseAccess(user, id, sql);
   const [r] =
     await sql`SELECT r.*,sh.name shop,ch.name channel,w.name warehouse FROM return_cases r JOIN shops sh ON sh.id=r.shop_id JOIN sales_channels ch ON ch.id=sh.channel_id JOIN warehouses w ON w.id=r.warehouse_id WHERE r.id=${id}`;
   if (!r) throw new AppError(404, "Không tìm thấy yêu cầu hoàn");
@@ -698,6 +715,9 @@ export async function returnDetail(user: User, id: string) {
     sql`SELECT id,filename,mime,created_at FROM return_evidence WHERE case_id=${id} ORDER BY created_at DESC`,
   ]);
   const catalog = await carrierCatalog(sql);
+  const media = (await returnOperationsStatus(sql)).ready
+    ? await sql`SELECT id,filename,mime,created_at,true storage FROM return_media WHERE case_id=${id} AND state='ready' ORDER BY created_at`
+    : [];
   return {
     record: r,
     items,
@@ -712,7 +732,7 @@ export async function returnDetail(user: User, id: string) {
     })),
     events,
     claims,
-    evidence,
+    evidence: [...evidence, ...media],
   };
 }
 const receiveSchema = z.object({
@@ -722,11 +742,16 @@ const receiveSchema = z.object({
   shiftId: z.uuid(),
   parcelId: z.uuid().optional(),
   method: z.enum(["manual", "hid", "camera"]).default("manual"),
+  courier: z.string().max(200).optional(),
+  note: z.string().max(2000).optional(),
+  sessionId: z.uuid().optional(),
+  carrierId: z.uuid().optional(),
 });
 export async function receiveReturn(user: User, raw: unknown) {
   const d = receiveSchema.parse(raw),
-    code = normalizeCode(d.code);
-  if (!validCode(code)) throw new AppError(400, "Mã vận đơn không hợp lệ");
+    code = exactReturnScanCode(d.code, (await returnOperationsStatus()).ready);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{3,79}$/.test(code))
+    throw new AppError(400, "Mã vận đơn không hợp lệ");
   return db().begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${d.requestId},0))`;
     const [prior] =
@@ -748,6 +773,8 @@ export async function receiveReturn(user: User, raw: unknown) {
         410,
         "Lượt nhận hoàn cũ đã được dọn. Không ghi nhận lại bằng mã yêu cầu cũ.",
       );
+    await tx`SELECT pg_advisory_xact_lock(742920)`;
+    const operations = await returnOperationsStatus(tx);
     const catalog = await carrierCatalog(tx);
     let identification = identifyCarrier(catalog, code);
     const [shift] =
@@ -759,7 +786,15 @@ export async function receiveReturn(user: User, raw: unknown) {
       );
     // Lock parent case first, shared with imports/inspection/undo to prevent races.
     const candidates =
-      await tx`SELECT p.id,p.case_id,r.external_id,r.order_code,sh.name shop,ch.name channel FROM return_parcels p JOIN return_cases r ON r.id=p.case_id JOIN shops sh ON sh.id=r.shop_id JOIN sales_channels ch ON ch.id=sh.channel_id WHERE p.tracking_code=${code} AND p.active AND r.warehouse_id=${d.warehouseId} AND NOT r.no_physical_return ORDER BY p.id`;
+      await tx`SELECT p.id,p.case_id,r.external_id,r.order_code,sh.name shop,ch.name channel FROM return_parcels p JOIN return_cases r ON r.id=p.case_id JOIN shops sh ON sh.id=r.shop_id JOIN sales_channels ch ON ch.id=sh.channel_id WHERE p.tracking_code=${code} AND p.active AND r.warehouse_id=${d.warehouseId} AND NOT r.no_physical_return AND ${operations.ready ? tx`r.obligation<>'not_required' AND NOT r.source_inactive` : tx`true`} ORDER BY p.id`;
+    if (operations.ready && candidates.length > 1 && d.parcelId) {
+      requireRole(user, managerRoles);
+      if ((d.note ?? "").trim().length < 8)
+        throw new AppError(
+          400,
+          "Nhập ghi chú xác minh ít nhất 8 ký tự trước khi chọn hồ sơ trùng mã",
+        );
+    }
     const selected = d.parcelId
       ? candidates.find((p) => p.id === d.parcelId)
       : candidates.length === 1
@@ -816,18 +851,48 @@ export async function receiveReturn(user: User, raw: unknown) {
         };
       }
     }
+    response = await recordPhysicalReturn(
+      tx,
+      user,
+      {
+        code,
+        warehouseId: d.warehouseId,
+        shiftId: d.shiftId,
+        courier: d.courier,
+        note: d.note,
+        sessionId: d.sessionId,
+        carrierId: d.carrierId,
+      },
+      response,
+    );
     response.carrierIdentification = identification;
     const [event] =
-      await tx`INSERT INTO return_events(case_id,parcel_id,request_id,actor_id,shift_id,action,code,data) VALUES(${response.caseId ?? null},${response.parcelId ?? null},${d.requestId},${user.id},${d.shiftId},${response.outcome},${code},${tx.json({ payload: d, response })}) RETURNING id`;
+      await tx`INSERT INTO return_events(case_id,parcel_id,request_id,actor_id,shift_id,action,code,reason,data) VALUES(${response.caseId ?? null},${response.parcelId ?? null},${d.requestId},${user.id},${d.shiftId},${response.outcome},${code},${d.note ?? ""},${tx.json({ payload: d, response })}) RETURNING id`;
     return { ...response, eventId: event.id };
   });
 }
 export async function inspectReturn(user: User, raw: unknown) {
+  const condition = z.enum([
+    "full",
+    "short",
+    "damaged",
+    "wrong",
+    "empty",
+    "swapped",
+    "missing_tag",
+    "used",
+    "dirty",
+    "torn",
+    "missing_accessory",
+    "other",
+  ]);
   const d = z
     .object({
       id: z.uuid(),
       version: z.number().int(),
-      condition: z.enum(["full", "short", "damaged", "wrong", "empty"]),
+      requestId: z.uuid().optional(),
+      parcelId: z.uuid().optional(),
+      condition,
       location: z.string().max(200).default(""),
       note: z.string().min(3).max(2000),
       items: z
@@ -835,16 +900,38 @@ export async function inspectReturn(user: User, raw: unknown) {
           z.object({
             id: z.uuid(),
             quantity: z.number().int().min(0).max(100000),
+            condition: condition.optional(),
           }),
         )
         .min(1)
-        .max(1000),
+        .max(2000),
     })
     .parse(raw);
   return db().begin(async (tx) => {
+    if (d.requestId) {
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${d.requestId},0))`;
+      const [prior] =
+        await tx`SELECT actor_id,action,data->'input'=${tx.json(d)} same FROM return_events WHERE request_id=${d.requestId}`;
+      if (prior) {
+        if (
+          prior.actor_id !== user.id ||
+          prior.action !== "inspect" ||
+          !prior.same
+        )
+          throw new AppError(409, "Mã thao tác đã dùng cho nội dung khác");
+        return { ok: true };
+      }
+    }
     const [r] =
       await tx`SELECT * FROM return_cases WHERE id=${d.id} FOR UPDATE`;
     if (!r) throw new AppError(404, "Không tìm thấy yêu cầu");
+    const ops = await returnOperationsStatus(tx);
+    if (ops.ready) await requireReturnCaseAccess(user, d.id, tx);
+    if (r.source_inactive || r.verification_status === "source_rebuild_pending")
+      throw new AppError(
+        409,
+        "Nguồn đã loại bỏ hoặc đang tính lại; chờ xác minh trước khi kiểm hàng",
+      );
     if (r.version !== d.version)
       throw new AppError(
         409,
@@ -852,14 +939,28 @@ export async function inspectReturn(user: User, raw: unknown) {
       );
     const parcels =
       await tx`SELECT * FROM return_parcels WHERE case_id=${d.id} AND active`;
-    if (
+    if (d.parcelId) {
+      if (!ops.ready)
+        throw new AppError(
+          503,
+          "Cần nâng cấp hàng hoàn v2 để kiểm riêng từng kiện",
+        );
+      if (!parcels.some((p) => p.id === d.parcelId && p.received_at))
+        throw new AppError(409, "Chỉ kiểm kiện đang hoạt động đã nhận thực tế");
+    } else if (
       r.no_physical_return ||
-      !parcels.length ||
+      (!parcels.length &&
+        !(
+          ops.ready &&
+          (
+            await tx`SELECT 1 FROM return_receipts WHERE case_id=${d.id} AND source_active AND match_state='matched'`
+          ).length
+        )) ||
       parcels.some((p) => !p.received_at)
     )
       throw new AppError(
         409,
-        "Phải nhận đủ các kiện đã khai báo trước khi kiểm nhận toàn yêu cầu",
+        "Phải nhận đủ các kiện đã khai báo trước khi kiểm toàn yêu cầu; có thể chọn kiểm riêng kiện đã nhận",
       );
     const items =
       await tx`SELECT * FROM return_items WHERE case_id=${d.id} AND active`;
@@ -868,8 +969,12 @@ export async function inspectReturn(user: User, raw: unknown) {
       new Set(d.items.map((i) => i.id)).size !== items.length ||
       items.some((i) => !d.items.some((x) => x.id === i.id))
     )
-      throw new AppError(400, "Kiểm đếm phải có đủ mọi SKU đang hoạt động");
+      throw new AppError(
+        400,
+        "Kiểm đếm phải có đủ mọi SKU đang hoạt động; SKU không có trong kiện ghi 0",
+      );
     if (
+      !d.parcelId &&
       d.condition === "full" &&
       items.some(
         (i) => d.items.find((x) => x.id === i.id)!.quantity !== i.expected_qty,
@@ -877,6 +982,7 @@ export async function inspectReturn(user: User, raw: unknown) {
     )
       throw new AppError(400, "Nhận đủ yêu cầu số lượng mỗi SKU bằng nguồn");
     if (
+      !d.parcelId &&
       d.condition === "short" &&
       !items.some(
         (i) => d.items.find((x) => x.id === i.id)!.quantity < i.expected_qty,
@@ -885,10 +991,110 @@ export async function inspectReturn(user: User, raw: unknown) {
       throw new AppError(400, "Chọn thiếu hàng khi ít nhất một SKU thiếu");
     if (d.condition === "empty" && d.items.some((i) => i.quantity !== 0))
       throw new AppError(400, "Kiện rỗng phải có số lượng bằng 0");
-    for (const i of d.items)
-      await tx`UPDATE return_items SET received_qty=${i.quantity} WHERE id=${i.id}`;
-    await tx`UPDATE return_cases SET inspection_status=${d.condition},inspection_stale=false,location=${d.location},version=version+1,updated_at=now() WHERE id=${d.id}`;
-    await tx`INSERT INTO return_events(case_id,actor_id,action,reason,data) VALUES(${d.id},${user.id},'inspect',${d.note},${tx.json({ before: items, input: d })})`;
+    if (
+      !d.parcelId &&
+      d.items.some(
+        (i) =>
+          i.condition === "full" &&
+          i.quantity !== items.find((x) => x.id === i.id)!.expected_qty,
+      )
+    )
+      throw new AppError(400, "SKU đánh dấu đủ phải đúng số lượng nguồn");
+    const signature = createHash("sha256")
+      .update(
+        JSON.stringify(
+          items
+            .map((i) => [i.id, i.expected_qty])
+            .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+        ),
+      )
+      .digest("hex");
+    await tx`INSERT INTO return_events(case_id,parcel_id,request_id,actor_id,action,reason,data,created_at) VALUES(${d.id},${d.parcelId ?? null},${d.requestId ?? null},${user.id},'inspect',${d.note},${tx.json({ before: items, input: d, itemSignature: signature })},clock_timestamp())`;
+    let state: string =
+        d.condition === "full"
+          ? (d.items.find((i) => i.condition && i.condition !== "full")
+              ?.condition ?? "full")
+          : d.condition,
+      partial = false;
+    let quantities = d.items.map((i) => ({
+      id: i.id,
+      quantity: i.quantity,
+      quality:
+        i.condition ??
+        (d.condition === "full"
+          ? "full"
+          : i.quantity < items.find((x) => x.id === i.id)!.expected_qty
+            ? "short"
+            : null),
+    }));
+    if (d.parcelId) {
+      const latest =
+        await tx`SELECT DISTINCT ON(e.parcel_id) e.parcel_id,e.data FROM return_events e JOIN return_parcels p ON p.id=e.parcel_id AND p.active WHERE e.case_id=${d.id} AND e.action='inspect' AND e.data->>'itemSignature'=${signature} AND e.created_at>coalesce((SELECT max(created_at) FROM return_events WHERE case_id=${d.id} AND action='inspect' AND parcel_id IS NULL),'-infinity'::timestamptz) ORDER BY e.parcel_id,e.created_at DESC,e.id DESC`;
+      partial = parcels.some(
+        (p) => !p.received_at || !latest.some((x) => x.parcel_id === p.id),
+      );
+      quantities = items.map((i) => {
+        const observations = latest.map((e) => ({
+          line: e.data.input.items.find((x: any) => x.id === i.id),
+          condition: e.data.input.condition,
+        }));
+        const quantity = observations.reduce(
+          (n, x) => n + (x.line?.quantity ?? 0),
+          0,
+        );
+        const problem = observations
+          .map((x) => x.line?.condition)
+          .find((c) => c && c !== "full");
+        return {
+          id: i.id,
+          quantity,
+          quality:
+            problem ??
+            (!partial && quantity < i.expected_qty
+              ? "short"
+              : !partial && quantity === i.expected_qty
+                ? "full"
+                : null),
+        };
+      });
+      const problem = latest
+        .flatMap((x) => [
+          x.data.input.condition,
+          ...x.data.input.items.map((i: any) => i.condition).filter(Boolean),
+        ])
+        .find((c) => c !== "full");
+      state =
+        problem ??
+        (partial
+          ? "pending"
+          : quantities.every(
+                (i) =>
+                  i.quantity === items.find((x) => x.id === i.id)!.expected_qty,
+              )
+            ? "full"
+            : quantities.every((i) => i.quantity === 0)
+              ? "empty"
+              : quantities.some(
+                    (i) =>
+                      i.quantity <
+                      items.find((x) => x.id === i.id)!.expected_qty,
+                  )
+                ? "short"
+                : "other");
+      if (state === "empty" && quantities.some((i) => i.quantity > 0))
+        state = "other";
+    }
+    if (quantities.some((i) => i.quantity > 2147483647))
+      throw new AppError(
+        413,
+        "Tổng lượng vượt phạm vi, cần kiểm tra từng kiện",
+      );
+    await tx`UPDATE return_items i SET received_qty=x.quantity FROM jsonb_to_recordset(${tx.json(quantities)}) AS x(id uuid,quantity integer) WHERE i.id=x.id`;
+    if (ops.ready) {
+      await tx`UPDATE return_items i SET quality_condition=x.quality FROM jsonb_to_recordset(${tx.json(quantities)}) AS x(id uuid,quality text) WHERE i.id=x.id`;
+      await tx`UPDATE return_cases SET inspection_partial=${partial},inspected_at=clock_timestamp() WHERE id=${d.id}`;
+    }
+    await tx`UPDATE return_cases SET inspection_status=${state},inspection_stale=false,location=${d.location},version=version+1,updated_at=now() WHERE id=${d.id}`;
     return { ok: true };
   });
 }
@@ -902,13 +1108,23 @@ export async function updateReturn(user: User, raw: unknown) {
       assignedTo: z.union([z.uuid(), z.literal("")]).optional(),
       expectedAt: z.union([z.iso.date(), z.literal("")]).optional(),
       noPhysical: z.boolean().optional(),
+      obligationOverride: z
+        .enum(["source", "required", "not_required"])
+        .optional(),
+      verificationStatus: z
+        .enum(["pending", "checking", "resolved", "rejected"])
+        .optional(),
+      verificationResult: z.string().trim().max(4000).optional(),
     })
     .parse(raw);
   if (
     d.status ||
     d.assignedTo !== undefined ||
     d.expectedAt !== undefined ||
-    d.noPhysical !== undefined
+    d.noPhysical !== undefined ||
+    d.obligationOverride !== undefined ||
+    d.verificationStatus !== undefined ||
+    d.verificationResult !== undefined
   )
     requireRole(user, managerRoles);
   if (d.status && !Object.hasOwn(returnProcessing, d.status))
@@ -917,6 +1133,13 @@ export async function updateReturn(user: User, raw: unknown) {
     const [r] =
       await tx`SELECT * FROM return_cases WHERE id=${d.id} FOR UPDATE`;
     if (!r) throw new AppError(404, "Không có yêu cầu");
+    if ((await returnOperationsStatus(tx)).ready)
+      await requireReturnCaseAccess(user, d.id, tx);
+    if (r.verification_status === "source_rebuild_pending")
+      throw new AppError(
+        409,
+        "Đang tính lại nguồn; chờ hoàn tất trước khi kiểm hoặc cập nhật hồ sơ",
+      );
     if (r.version !== d.version)
       throw new AppError(409, "Dữ liệu đã đổi; tải lại chi tiết");
     if (
@@ -927,7 +1150,14 @@ export async function updateReturn(user: User, raw: unknown) {
       throw new AppError(400, "Nhân viên không tồn tại hoặc đã khóa");
     const parcels =
       await tx`SELECT * FROM return_parcels WHERE case_id=${d.id} AND active`;
-    if (d.noPhysical && parcels.some((p) => p.received_at))
+    if (
+      (d.noPhysical || d.obligationOverride === "not_required") &&
+      (parcels.some((p) => p.received_at) ||
+        ((await returnOperationsStatus(tx)).ready &&
+          (
+            await tx`SELECT 1 FROM return_receipts WHERE case_id=${d.id} AND match_state='matched' AND source_active`
+          ).length))
+    )
       throw new AppError(
         409,
         "Đã nhận kiện, không thể đổi thành không cần trả hàng",
@@ -956,6 +1186,7 @@ export async function updateReturn(user: User, raw: unknown) {
       d.status === "completed" &&
       !(d.noPhysical ?? r.no_physical_return) &&
       (r.inspection_status !== "full" ||
+        r.inspection_partial ||
         r.inspection_stale ||
         !parcels.length ||
         parcels.some((p) => !p.received_at))
@@ -965,6 +1196,26 @@ export async function updateReturn(user: User, raw: unknown) {
         "Chỉ hoàn thành khi kiểm đủ mới nhất, hoặc quản lý xác nhận không yêu cầu trả vật lý",
       );
     await tx`UPDATE return_cases SET processing_status=${d.status ?? r.processing_status},assigned_to=${d.assignedTo === undefined ? r.assigned_to : d.assignedTo || null},expected_at=${d.expectedAt === undefined ? r.expected_at : d.expectedAt || null},no_physical_return=${d.noPhysical ?? r.no_physical_return},version=version+1,updated_at=now() WHERE id=${d.id}`;
+    if (
+      (await returnOperationsStatus(tx)).ready &&
+      d.obligationOverride !== undefined
+    ) {
+      if (
+        d.obligationOverride === "required" &&
+        (d.noPhysical ?? r.no_physical_return)
+      )
+        throw new AppError(
+          409,
+          "Bỏ xác nhận không yêu cầu trả vật lý trước khi xác minh cần nhận hàng",
+        );
+      const source = deriveReturnFacts(r.source_data, r.workflow);
+      await tx`UPDATE return_cases SET obligation=${d.obligationOverride === "source" ? source.obligation : d.obligationOverride},obligation_verified=${d.obligationOverride !== "source"},obligation_conflict=false WHERE id=${d.id}`;
+    }
+    if (
+      (await returnOperationsStatus(tx)).ready &&
+      (d.verificationStatus !== undefined || d.verificationResult !== undefined)
+    )
+      await tx`UPDATE return_cases SET verification_status=${d.verificationStatus ?? r.verification_status},verification_result=${d.verificationResult ?? r.verification_result} WHERE id=${d.id}`;
     await tx`INSERT INTO return_events(case_id,actor_id,action,reason,data) VALUES(${d.id},${user.id},'update',${d.note},${tx.json({ before: r, change: d })})`;
     return { ok: true };
   });
@@ -974,6 +1225,7 @@ export async function undoReturn(user: User, raw: unknown) {
     .object({ eventId: z.uuid(), reason: z.string().trim().min(8).max(1000) })
     .parse(raw);
   return db().begin(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock(742920)`;
     const [event] =
       await tx`SELECT * FROM return_events WHERE id=${d.eventId} AND action='received'`;
     if (!event) throw new AppError(404, "Không có lượt nhận hợp lệ");
@@ -994,6 +1246,21 @@ export async function undoReturn(user: User, raw: unknown) {
         409,
         "Đã có kiểm nhận/cập nhật sau lượt này; không hoàn tác để tránh mất lịch sử",
       );
+    if ((await returnOperationsStatus(tx)).ready) {
+      const receipts =
+        await tx`SELECT * FROM return_receipts WHERE parcel_id=${event.parcel_id} AND source_active FOR UPDATE`;
+      for (const r of receipts) {
+        const [other] =
+          await tx`SELECT 1 FROM return_receipt_events WHERE receipt_id=${r.id} AND action='duplicate_receipt' AND (data->>'source'='warehouse_file' OR data->'input'->>'sessionId' IS NOT NULL) LIMIT 1`;
+        if (r.source === "warehouse_file" || other)
+          throw new AppError(
+            409,
+            "Có bằng chứng nhận độc lập; không hoàn tác lượt quét làm mất xác nhận nhận kho",
+          );
+        await tx`UPDATE return_receipts SET source_active=false,parcel_id=null,match_state='unmatched',version=version+1 WHERE id=${r.id}`;
+        await tx`INSERT INTO return_receipt_events(receipt_id,case_id,actor_id,action,reason,data) VALUES(${r.id},${event.case_id},${user.id},'undo_receive',${d.reason},${tx.json({ eventId: event.id })})`;
+      }
+    }
     await tx`UPDATE return_parcels SET received_at=null,received_by=null WHERE id=${event.parcel_id}`;
     await tx`UPDATE return_cases SET version=version+1,updated_at=now() WHERE id=${event.case_id}`;
     await tx`INSERT INTO return_events(case_id,parcel_id,actor_id,action,reason,data) VALUES(${event.case_id},${event.parcel_id},${user.id},'undo_receive',${d.reason},${tx.json({ eventId: event.id })})`;
@@ -1006,6 +1273,16 @@ export async function saveReturnClaim(user: User, raw: unknown) {
   const d = z
     .object({
       caseId: z.uuid(),
+      requestId: z.uuid().optional(),
+      version: z.number().int().optional(),
+      claimType: z.string().trim().max(50).optional(),
+      responsibleParty: z
+        .enum(["carrier", "platform", "warehouse", "customer", "other"])
+        .optional(),
+      carrierId: z.uuid().nullable().optional(),
+      parcelId: z.uuid().nullable().optional(),
+      assignedTo: z.uuid().nullable().optional(),
+      closedOn: z.iso.date().nullable().optional(),
       id: z.uuid().optional(),
       status: z.enum(["open", "submitted", "won", "lost", "paid", "closed"]),
       reason: z.string().trim().min(8).max(2000),
@@ -1021,11 +1298,50 @@ export async function saveReturnClaim(user: User, raw: unknown) {
   if (d.status === "paid" && (d.received === null || !d.receivedOn))
     throw new AppError(400, "Đã nhận tiền cần số tiền và ngày thực nhận");
   return db().begin(async (tx) => {
+    if (d.requestId) {
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${d.requestId},0))`;
+      const [prior] =
+        await tx`SELECT * FROM return_events WHERE request_id=${d.requestId}`;
+      if (prior) {
+        if (
+          prior.actor_id !== user.id ||
+          JSON.stringify(prior.data.payload) !==
+            JSON.stringify(JSON.parse(JSON.stringify(d)))
+        ) {
+          const same =
+            prior.actor_id === user.id &&
+            Object.keys(d).every(
+              (k) =>
+                JSON.stringify(prior.data.payload?.[k]) ===
+                JSON.stringify((d as any)[k]),
+            );
+          if (!same)
+            throw new AppError(409, "Mã thao tác đã gắn với dữ liệu khác");
+        }
+        return prior.data.after;
+      }
+      if (
+        (
+          await tx`SELECT 1 FROM retired_requests WHERE kind='returns' AND request_id=${d.requestId}`
+        ).length
+      )
+        throw new AppError(
+          410,
+          "Lượt cũ đã được dọn; không tạo lại bằng mã yêu cầu cũ",
+        );
+    }
     if (
       !(await tx`SELECT id FROM return_cases WHERE id=${d.caseId} FOR UPDATE`)
         .length
     )
       throw new AppError(404, "Không có yêu cầu");
+    const [parent] =
+      await tx`SELECT version FROM return_cases WHERE id=${d.caseId}`;
+    if (d.version !== undefined && parent.version !== d.version)
+      throw new AppError(
+        409,
+        "Hồ sơ đã thay đổi; mở lại trước khi cập nhật khiếu nại",
+      );
     const [old] = d.id
       ? await tx`SELECT * FROM return_claims WHERE id=${d.id} AND case_id=${d.caseId}`
       : [];
@@ -1037,7 +1353,29 @@ export async function saveReturnClaim(user: User, raw: unknown) {
     else
       [claim] =
         await tx`INSERT INTO return_claims(case_id,status,reason,deadline,requested_amount,approved_amount,received_amount,received_on,created_by) VALUES(${d.caseId},${d.status},${d.reason},${d.deadline},${d.requested},${d.approved},${d.received},${d.receivedOn},${user.id}) RETURNING *`;
-    await tx`INSERT INTO return_events(case_id,actor_id,action,reason,data) VALUES(${d.caseId},${user.id},'claim',${d.reason},${tx.json({ before: old ?? null, after: claim })})`;
+    if ((await returnOperationsStatus(tx)).ready) {
+      if (
+        d.parcelId &&
+        !(
+          await tx`SELECT id FROM return_parcels WHERE id=${d.parcelId} AND case_id=${d.caseId}`
+        ).length
+      )
+        throw new AppError(400, "Kiện khiếu nại không thuộc hồ sơ");
+      if (
+        d.assignedTo &&
+        !(await tx`SELECT id FROM users WHERE id=${d.assignedTo} AND active`)
+          .length
+      )
+        throw new AppError(400, "Người phụ trách không còn hoạt động");
+      [claim] =
+        await tx`UPDATE return_claims SET claim_type=coalesce(${d.claimType ?? null},claim_type),responsible_party=coalesce(${d.responsibleParty ?? null},responsible_party),
+      carrier_id=CASE WHEN ${d.carrierId !== undefined} THEN ${d.carrierId ?? null}::uuid ELSE carrier_id END,
+      parcel_id=CASE WHEN ${d.parcelId !== undefined} THEN ${d.parcelId ?? null}::uuid ELSE parcel_id END,
+      assigned_to=CASE WHEN ${d.assignedTo !== undefined} THEN ${d.assignedTo ?? null}::uuid ELSE assigned_to END,
+      closed_at=CASE WHEN ${["paid", "lost", "closed"].includes(d.status)} THEN coalesce(${d.closedOn ? d.closedOn + "T00:00:00+07:00" : null}::timestamptz,closed_at,clock_timestamp()) ELSE NULL END
+      WHERE id=${claim.id} RETURNING *`;
+    }
+    await tx`INSERT INTO return_events(case_id,request_id,actor_id,action,reason,data) VALUES(${d.caseId},${d.requestId ?? null},${user.id},'claim',${d.reason},${tx.json({ payload: d, before: old ?? null, after: claim })})`;
     await tx`UPDATE return_cases SET version=version+1,updated_at=now() WHERE id=${d.caseId}`;
     return claim;
   });
@@ -1069,9 +1407,16 @@ export async function editReturnParcel(user: User, raw: unknown) {
         throw new AppError(409, "Không loại bỏ kiện đã nhận");
       [parcel] =
         await tx`UPDATE return_parcels SET carrier_origin=CASE WHEN ${d.carrierId !== undefined} THEN 'manual' ELSE carrier_origin END,active=${!d.exclude},carrier_id=${d.carrierId === undefined ? p.carrier_id : d.carrierId} WHERE id=${p.id} RETURNING *`;
+      if ((await returnOperationsStatus(tx)).ready)
+        [parcel] =
+          await tx`UPDATE return_parcels SET excluded_manually=${d.exclude} WHERE id=${p.id} RETURNING *`;
     } else {
-      const code = normalizeCode(d.tracking ?? "");
-      if (!validCode(code)) throw new AppError(400, "Mã không hợp lệ");
+      const code = exactReturnScanCode(
+        d.tracking ?? "",
+        (await returnOperationsStatus(tx)).ready,
+      );
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]{3,79}$/.test(code))
+        throw new AppError(400, "Mã không hợp lệ");
       [parcel] =
         await tx`INSERT INTO return_parcels(case_id,tracking_code,carrier_id,carrier_origin) VALUES(${d.caseId},${code},${d.carrierId ?? null},'manual') RETURNING *`;
     }

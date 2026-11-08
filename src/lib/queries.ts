@@ -1,3 +1,4 @@
+import { returnOperationsStatus } from "./return-operations-access";
 import { prescanAccess, scanHistoryRelation } from "./prescan";
 import { db, type User } from "./db";
 import { todayVN, managerRoles, requireRole, AppError } from "./domain";
@@ -105,8 +106,12 @@ export async function referenceData(user: User) {
       ? []
       : await sql`SELECT id,name,email,role,active FROM users ORDER BY name`;
   const prescan = await prescanAccess(sql);
+  const returnsOperations = await returnOperationsStatus(sql);
   return {
     appRevision: APP_REVISION,
+    returnOperationsReady:
+      returnsOperations.ready && returnsOperations.permissions,
+    returnOperationsInstalled: returnsOperations.ready,
     prescanReady: prescan.schemaReady,
     prescanPermissionsReady:
       !prescan.schemaReady || (prescan.canRead && prescan.canWrite),

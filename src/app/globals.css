@@ -4414,3 +4414,128 @@ tr:hover td {
     padding: 6px 0;
   }
 }
+
+/* Return operations v2: share outbound card rhythm, keep dense navigation and
+   large charts usable without changing outbound or legacy return selectors. */
+.return-operations {
+  min-width: 0;
+}
+.return-operations .return-tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  overflow-x: auto;
+  border-bottom: 0;
+  padding-bottom: 8px;
+}
+.return-operations .return-tabs button {
+  flex: 0 0 185px;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 0;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 12px 14px;
+  background: #fff;
+}
+.return-operations .return-tabs strong,
+.return-operations .return-tabs small {
+  display: block;
+  white-space: normal;
+}
+.return-operations .return-tabs strong {
+  font-size: 12px;
+}
+.return-operations .return-tabs small {
+  margin-top: 4px;
+  font-size: 10px;
+  color: #8490a0;
+}
+.return-operations .return-tabs button.active {
+  border-color: #ffaf87;
+  background: #fff4ec;
+  color: #de551c;
+}
+.return-operations > .card.padded > .form-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0 14px;
+}
+.return-operations .kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  justify-content: space-between;
+  min-height: 132px;
+}
+.return-operations .kpi > .inline {
+  align-items: flex-start;
+  color: #69778b;
+}
+.return-operations .kpi .big-number {
+  display: block;
+  text-align: left;
+  font-size: clamp(22px, 2.3vw, 34px);
+  padding: 0;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.return-operations .kpi[data-kpi="received"] .big-number,
+.return-operations .kpi[data-kpi="received_full"] .big-number {
+  color: #078660;
+}
+.return-operations .kpi[data-kpi="needs_check"] .big-number,
+.return-operations .kpi[data-kpi="suspected_lost"] .big-number {
+  color: #e85c26;
+}
+.return-operations .dashboard-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+}
+.return-operations .dashboard-grid > section {
+  min-width: 0;
+}
+.return-operation-secondary > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #536579;
+}
+.return-operation-secondary[open] > summary {
+  margin-bottom: 16px;
+}
+.return-operations .return-day-bars {
+  max-height: 280px;
+  overflow-y: auto;
+}
+.return-operations .return-day-bars .inline {
+  display: grid;
+  grid-template-columns: 95px minmax(0, 1fr) 60px;
+  gap: 10px;
+  margin: 8px 0;
+}
+.return-operations .return-day-bars meter {
+  width: 100%;
+}
+@media (max-width: 1100px) {
+  .return-operations > .card.padded > .form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 720px) {
+  .return-operations .dashboard-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .return-operations .return-tabs button {
+    flex-basis: 165px;
+  }
+}
+@media (max-width: 460px) {
+  .return-operations > .card.padded > .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .return-operations .kpi .big-number {
+    font-size: 25px;
+  }
+}

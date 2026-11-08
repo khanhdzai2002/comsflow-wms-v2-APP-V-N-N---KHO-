@@ -8,6 +8,11 @@ const options = {
     "application/pdf",
     "application/octet-stream",
     "text/csv",
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "video/mp4",
+    "video/webm",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   ],
 };

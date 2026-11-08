@@ -1,3 +1,8 @@
+import { returnOperationRequest } from "./return-operation-api";
+import {
+  requireReturnCaseAccess,
+  returnOperationsStatus,
+} from "../lib/return-operations-access";
 import { scanHistoryRelation } from "@/lib/prescan";
 import { carrierKey, carrierCatalog, identifyCarrier } from "@/lib/carriers";
 import { returnAnalytics } from "@/lib/return-analytics";
@@ -200,6 +205,8 @@ export async function dispatch(req: NextRequest, trustedUser?: User) {
       await myScans(user, req.nextUrl.searchParams.get("shift") ?? undefined),
     );
   if (path.startsWith("returns")) {
+    const operationResponse = await returnOperationRequest(req, user);
+    if (operationResponse) return operationResponse;
     if (path === "returns/events/mine" && req.method === "GET")
       return json({
         events:
@@ -322,6 +329,8 @@ export async function dispatch(req: NextRequest, trustedUser?: User) {
         file = form.get("file");
       if (!(file instanceof File) || file.size > 5 * 1024 * 1024)
         throw new AppError(400, "Bằng chứng tối đa 5 MB");
+      if ((await returnOperationsStatus()).ready)
+        await requireReturnCaseAccess(user, caseId);
       const b = Buffer.from(await file.arrayBuffer());
       const mime =
         b.subarray(0, 5).toString() === "%PDF-"
@@ -361,6 +370,8 @@ export async function dispatch(req: NextRequest, trustedUser?: User) {
       const [e] =
         await sql`SELECT * FROM return_evidence WHERE id=${id(path.split("/")[2])}`;
       if (!e) throw new AppError(404, "Không có bằng chứng");
+      if ((await returnOperationsStatus()).ready)
+        await requireReturnCaseAccess(user, e.case_id);
       return new NextResponse(e.bytes, {
         headers: {
           "Content-Type": e.mime,

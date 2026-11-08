@@ -1,4 +1,6 @@
 "use client";
+import { ReturnHandoverPanel } from "./return-handover";
+import { ReturnOperationsModule } from "./return-operations";
 import { ReturnOverview } from "./return-overview";
 import { MetricHelp } from "./metric-help";
 import {
@@ -86,7 +88,19 @@ const outcome: Record<string, string> = {
   unknown: "KHÔNG TÌM THẤY VẬN ĐƠN TRONG DỮ LIỆU ĐÃ NHẬP",
   ambiguous: "MÃ KHỚP NHIỀU HỒ SƠ · CHỌN ĐÚNG KIỆN",
 };
-export function ReturnsModule({
+export function ReturnsModule(props: {
+  user: User;
+  refs: Row;
+  tab: ReturnTab;
+  onTabChange: (tab: ReturnTab) => void;
+}) {
+  return props.refs.returnOperationsReady ? (
+    <ReturnOperationsModule {...props} />
+  ) : (
+    <LegacyReturnsModule {...props} />
+  );
+}
+function LegacyReturnsModule({
   user,
   refs,
   tab,
@@ -179,7 +193,9 @@ export function ReturnsModule({
           aria-label="Quản lý đơn hoàn"
         >
           {tabs.map(({ key, label, description }) => {
-            const Icon = returnTabIcons[key];
+            const Icon =
+              returnTabIcons[key as keyof typeof returnTabIcons] ??
+              LayoutDashboard;
             return (
               <button
                 key={key}
@@ -425,14 +441,36 @@ export function ReturnsModule({
                       Đơn hủy / không cần trả hàng
                     </option>
                     {Object.entries(returnInspection)
-                      .filter(([k]) => k !== "pending")
+                      .filter(
+                        ([k]) =>
+                          k !== "pending" &&
+                          (refs.returnOperationsReady ||
+                            [
+                              "full",
+                              "short",
+                              "damaged",
+                              "wrong",
+                              "empty",
+                            ].includes(k)),
+                      )
                       .map(([k, l]) => (
                         <option value={k} key={k}>
                           {l}
                         </option>
                       ))}
                     {Object.entries(returnProcessing)
-                      .filter(([k]) => k !== "pending")
+                      .filter(
+                        ([k]) =>
+                          k !== "pending" &&
+                          (refs.returnOperationsReady ||
+                            [
+                              "full",
+                              "short",
+                              "damaged",
+                              "wrong",
+                              "empty",
+                            ].includes(k)),
+                      )
                       .map(([k, l]) => (
                         <option value={k} key={k}>
                           {l}
@@ -1283,7 +1321,7 @@ function ReturnImporter({
     </section>
   );
 }
-function ReturnScanner({
+export function ReturnScanner({
   refs,
   user,
   events,
@@ -1303,6 +1341,10 @@ function ReturnScanner({
     [busy, setBusy] = useState(false),
     [camera, setCamera] = useState(false),
     [method, setMethod] = useState("manual");
+  const [sessionId, setSessionId] = useState(""),
+    [receiptCarrier, setReceiptCarrier] = useState(""),
+    [courier, setCourier] = useState(""),
+    [receiptNote, setReceiptNote] = useState("");
   const input = useRef<HTMLInputElement>(null),
     running = useRef(false),
     pending = useRef<Row | null>(null);
@@ -1332,6 +1374,14 @@ function ReturnScanner({
         warehouseId: warehouse,
         shiftId: shift.id,
         method: scanMethod,
+        ...(refs.returnOperationsReady
+          ? {
+              sessionId: sessionId || undefined,
+              carrierId: receiptCarrier || undefined,
+              courier,
+              note: receiptNote,
+            }
+          : {}),
         ...(parcelId ? { parcelId } : {}),
       };
       const key = JSON.stringify(payload);
@@ -1365,6 +1415,7 @@ function ReturnScanner({
       running.current = false;
       setBusy(false);
       input.current?.focus();
+      input.current?.select();
     }
   }
   return (
@@ -1377,6 +1428,7 @@ function ReturnScanner({
             value={warehouse}
             onChange={(e) => {
               setWarehouse(e.target.value);
+              setSessionId("");
               setResult(null);
             }}
           >
@@ -1405,6 +1457,21 @@ function ReturnScanner({
           </select>
         </label>
       </div>
+      {refs.returnOperationsReady && (
+        <ReturnHandoverPanel
+          refs={refs}
+          userId={user.id}
+          warehouse={warehouse}
+          sessionId={sessionId}
+          onSession={setSessionId}
+          carrier={receiptCarrier}
+          onCarrier={setReceiptCarrier}
+          courier={courier}
+          onCourier={setCourier}
+          note={receiptNote}
+          onNote={setReceiptNote}
+        />
+      )}
       {!shift && (
         <div className="notice warning">
           Chưa có ca được phân công tại kho này.{" "}
@@ -1439,6 +1506,7 @@ function ReturnScanner({
           Mã vận đơn hoàn
           <input
             className="return-code-input"
+            disabled={busy}
             ref={input}
             autoFocus
             autoComplete="off"
@@ -1453,7 +1521,9 @@ function ReturnScanner({
           />
         </label>
         <button disabled={busy || !shift || !code.trim()}>
-          Xác nhận nhận kiện hoàn
+          {busy
+            ? "Đang lưu · chờ xác nhận trước khi quét tiếp"
+            : "Xác nhận nhận kiện hoàn"}
         </button>{" "}
         <button
           className="secondary"
@@ -1479,7 +1549,9 @@ function ReturnScanner({
               ? "success"
               : result.outcome === "duplicate"
                 ? "warning"
-                : "danger")
+                : result.recorded
+                  ? "warning"
+                  : "danger")
           }
           role="status"
         >
@@ -1487,7 +1559,16 @@ function ReturnScanner({
             {result.outcome === "received" && (
               <CheckCircle2 size={24} aria-hidden="true" />
             )}
-            {outcome[result.outcome]}
+            {refs.returnOperationsReady &&
+            result.recorded &&
+            ["unknown", "ambiguous"].includes(result.outcome)
+              ? "ĐÃ LƯU NHẬN THỰC TẾ · CHỜ ĐỐI CHIẾU NGUỒN"
+              : refs.returnOperationsReady &&
+                  result.recorded &&
+                  result.outcome === "duplicate" &&
+                  result.matchState !== "matched"
+                ? "MÃ ĐÃ LƯU NHẬN THỰC TẾ · CHỜ ĐỐI CHIẾU"
+                : outcome[result.outcome]}
           </strong>
           <p>
             {result.code}{" "}
@@ -1529,6 +1610,15 @@ function ReturnScanner({
             <button
               key={c.id}
               className="secondary"
+              disabled={
+                !!refs.returnOperationsReady &&
+                (user.role === "staff" || receiptNote.trim().length < 8)
+              }
+              title={
+                refs.returnOperationsReady
+                  ? "Quản lý điền ghi chú xác minh trước khi chọn đúng hồ sơ"
+                  : "Chọn hồ sơ"
+              }
               onClick={() => receive(result.code, c.id)}
             >
               {c.channel} · {c.shop} · {c.external_id}
@@ -1584,7 +1674,7 @@ function ReturnEvents({ events }: { events: Row[] }) {
     </div>
   );
 }
-function ReturnCase({
+export function ReturnCase({
   id,
   refs,
   user,
@@ -1615,6 +1705,12 @@ function ReturnCase({
   return (
     <Modal title="Chi tiết đơn hoàn" onClose={onClose}>
       <ErrorBox message={error || problem} />
+      {data?.record.source_inactive && (
+        <p className="notice warning">
+          Nguồn của hồ sơ đã bị loại bỏ. Lịch sử nhận/kiểm hàng được giữ; cần
+          xác minh nguồn đang có hiệu lực trước khi xử lý tiếp.
+        </p>
+      )}
       {!data ? (
         <Loading />
       ) : (
@@ -1630,6 +1726,14 @@ function ReturnCase({
             setProblem("");
             setBusy(true);
             try {
+              if (refs.returnOperationsReady) {
+                const { uploadReturnMedia } =
+                  await import("./return-media-client");
+                await uploadReturnMedia(file, { caseId: id });
+                await reload();
+                toast("Đã lưu bằng chứng bảo mật");
+                return;
+              }
               const form = new FormData();
               form.set("caseId", id);
               form.set("file", file);
@@ -1674,10 +1778,30 @@ function ReturnCaseBody({
     ),
     [note, setNote] = useState(""),
     [location, setLocation] = useState(r.location);
+  const [inspectionParcel, setInspectionParcel] = useState("");
+  const inspectionRequest = useRef<{ key: string; id: string } | null>(null);
+  const [itemConditions, setItemConditions] = useState<Row>(
+    Object.fromEntries(
+      active.map((i: Row) => [i.id, i.quality_condition ?? ""]),
+    ),
+  );
   const [status, setStatus] = useState(r.processing_status),
     [assigned, setAssigned] = useState(r.assigned_to ?? ""),
     [expected, setExpected] = useState(r.expected_at?.slice(0, 10) ?? ""),
     [noPhysical, setNoPhysical] = useState(r.no_physical_return);
+  const [obligationOverride, setObligationOverride] = useState(
+    r.obligation_verified ? r.obligation : "source",
+  );
+  const [verification, setVerification] = useState(
+      ["pending", "checking", "resolved", "rejected"].includes(
+        r.verification_status,
+      )
+        ? r.verification_status
+        : "pending",
+    ),
+    [verificationResult, setVerificationResult] = useState(
+      r.verification_result ?? "",
+    );
   const [tracking, setTracking] = useState(""),
     [carrier, setCarrier] = useState("");
   const [parcelCarriers, setParcelCarriers] = useState<Row>(
@@ -1687,6 +1811,13 @@ function ReturnCaseBody({
   );
   const blankClaim = {
     id: "",
+    requestId: crypto.randomUUID(),
+    claimType: "other",
+    responsibleParty: "carrier",
+    carrierId: "",
+    parcelId: "",
+    assignedTo: "",
+    closedOn: "",
     status: "open",
     reason: "",
     deadline: "",
@@ -1841,6 +1972,45 @@ function ReturnCaseBody({
           </button>
         </div>
       )}
+      {refs.returnOperationsReady && (
+        <>
+          <label className="field">
+            Phạm vi kiểm hàng
+            <select
+              value={inspectionParcel}
+              onChange={(e) => {
+                setInspectionParcel(e.target.value);
+                setQty(
+                  Object.fromEntries(
+                    active.map((i: Row) => [
+                      i.id,
+                      e.target.value ? 0 : (i.received_qty ?? 0),
+                    ]),
+                  ),
+                );
+                setItemConditions(
+                  Object.fromEntries(active.map((i: Row) => [i.id, ""])),
+                );
+              }}
+            >
+              <option value="">Kiểm toàn bộ yêu cầu · cần nhận đủ kiện</option>
+              {data.parcels
+                .filter((p: Row) => p.active && p.received_at)
+                .map((p: Row) => (
+                  <option value={p.id} key={p.id}>
+                    Kiểm riêng kiện {p.tracking_code}
+                  </option>
+                ))}
+            </select>
+          </label>
+          {r.inspection_partial && (
+            <p className="notice warning">
+              Đã kiểm một phần. Số lượng hiện là phần đã đếm; còn kiện chưa
+              kiểm, chưa xác nhận đủ cả yêu cầu.
+            </p>
+          )}
+        </>
+      )}
       <h3>Kiểm đếm từng SKU</h3>
       <p>
         Nhập số đã kiểm thực tế, không mặc định bằng số nguồn. Không cộng tồn
@@ -1853,6 +2023,7 @@ function ReturnCaseBody({
               <th>SKU / sản phẩm / phân loại</th>
               <th>Yêu cầu</th>
               <th>Thực nhận</th>
+              {refs.returnOperationsReady && <th>Tình trạng SKU</th>}
             </tr>
           </thead>
           <tbody>
@@ -1861,7 +2032,8 @@ function ReturnCaseBody({
                 <td>
                   {i.seller_sku || i.sku_id}
                   <small className="block">
-                    {i.name} · {i.variant}
+                    {i.name} · {i.variant} {i.color ? "· Màu: " + i.color : ""}{" "}
+                    {i.size ? "· Size: " + i.size : ""}
                   </small>
                 </td>
                 <td>{i.expected_qty}</td>
@@ -1875,6 +2047,40 @@ function ReturnCaseBody({
                     onChange={(e) => setQty({ ...qty, [i.id]: e.target.value })}
                   />
                 </td>
+                {refs.returnOperationsReady && (
+                  <td>
+                    <select
+                      aria-label={"Tình trạng SKU " + i.sku_id}
+                      value={itemConditions[i.id]}
+                      onChange={(e) =>
+                        setItemConditions({
+                          ...itemConditions,
+                          [i.id]: e.target.value,
+                        })
+                      }
+                    >
+                      <option value="">Chưa xác định riêng SKU</option>
+                      {Object.entries(returnInspection)
+                        .filter(
+                          ([k]) =>
+                            k !== "pending" &&
+                            (refs.returnOperationsReady ||
+                              [
+                                "full",
+                                "short",
+                                "damaged",
+                                "wrong",
+                                "empty",
+                              ].includes(k)),
+                        )
+                        .map(([k, label]) => (
+                          <option value={k} key={k}>
+                            {label}
+                          </option>
+                        ))}
+                    </select>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -1888,7 +2094,12 @@ function ReturnCaseBody({
           onChange={(e) => setCondition(e.target.value)}
         >
           {Object.entries(returnInspection)
-            .filter(([k]) => k !== "pending")
+            .filter(
+              ([k]) =>
+                k !== "pending" &&
+                (refs.returnOperationsReady ||
+                  ["full", "short", "damaged", "wrong", "empty"].includes(k)),
+            )
             .map(([k, l]) => (
               <option key={k} value={k}>
                 {l}
@@ -1911,8 +2122,8 @@ function ReturnCaseBody({
       </label>
       <button
         disabled={busy || note.trim().length < 8}
-        onClick={() =>
-          save("inspect", {
+        onClick={() => {
+          const payload = {
             id: r.id,
             version: r.version,
             condition,
@@ -1921,9 +2132,22 @@ function ReturnCaseBody({
             items: active.map((i: Row) => ({
               id: i.id,
               quantity: Number(qty[i.id]),
+              ...(refs.returnOperationsReady && itemConditions[i.id]
+                ? { condition: itemConditions[i.id] }
+                : {}),
             })),
-          })
-        }
+            ...(inspectionParcel ? { parcelId: inspectionParcel } : {}),
+          };
+          const key = JSON.stringify(payload);
+          if (inspectionRequest.current?.key !== key)
+            inspectionRequest.current = { key, id: crypto.randomUUID() };
+          void save("inspect", {
+            ...payload,
+            ...(refs.returnOperationsReady
+              ? { requestId: inspectionRequest.current.id }
+              : {}),
+          });
+        }}
       >
         Lưu kiểm nhận sản phẩm
       </button>
@@ -1958,6 +2182,45 @@ function ReturnCaseBody({
               onChange={(e) => setExpected(e.target.value)}
             />
           </label>
+          {refs.returnOperationsReady && (
+            <>
+              <label className="field">
+                Nghĩa vụ nhận hàng
+                <select
+                  value={obligationOverride}
+                  onChange={(e) => setObligationOverride(e.target.value)}
+                >
+                  <option value="source">Theo dữ liệu nguồn</option>
+                  <option value="required">
+                    Quản lý xác minh: cần nhận hàng
+                  </option>
+                  <option value="not_required">
+                    Quản lý xác minh: không cần nhận
+                  </option>
+                </select>
+              </label>
+              <label className="field">
+                Tình trạng tra soát
+                <select
+                  value={verification}
+                  onChange={(e) => setVerification(e.target.value)}
+                >
+                  <option value="pending">Chờ xử lý</option>
+                  <option value="checking">Đang xác minh</option>
+                  <option value="resolved">Đã xác minh</option>
+                  <option value="rejected">Chưa thống nhất</option>
+                </select>
+              </label>
+              <label className="field">
+                Kết quả xác minh của đơn vị vận chuyển
+                <textarea
+                  value={verificationResult}
+                  maxLength={4000}
+                  onChange={(e) => setVerificationResult(e.target.value)}
+                />
+              </label>
+            </>
+          )}
           <label className="inline">
             <input
               type="checkbox"
@@ -1982,6 +2245,13 @@ function ReturnCaseBody({
                   assignedTo: assigned,
                   expectedAt: expected,
                   noPhysical,
+                  ...(refs.returnOperationsReady
+                    ? {
+                        obligationOverride,
+                        verificationStatus: verification,
+                        verificationResult,
+                      }
+                    : {}),
                 }
               : {}),
           })
@@ -2030,6 +2300,17 @@ function ReturnCaseBody({
               onClick={() =>
                 setClaim({
                   id: c.id,
+                  requestId: crypto.randomUUID(),
+                  claimType: c.claim_type ?? "other",
+                  responsibleParty: c.responsible_party || "carrier",
+                  carrierId: c.carrier_id ?? "",
+                  parcelId: c.parcel_id ?? "",
+                  assignedTo: c.assigned_to ?? "",
+                  closedOn: c.closed_at
+                    ? new Intl.DateTimeFormat("en-CA", {
+                        timeZone: "Asia/Ho_Chi_Minh",
+                      }).format(new Date(c.closed_at))
+                    : "",
                   status: c.status,
                   reason: c.reason,
                   deadline: c.deadline?.slice(0, 10) ?? "",
@@ -2071,6 +2352,104 @@ function ReturnCaseBody({
                 ))}
               </select>
             </label>
+            {refs.returnOperationsReady && (
+              <>
+                <label className="field">
+                  Loại khiếu nại
+                  <select
+                    value={claim.claimType}
+                    onChange={(e) =>
+                      setClaim({ ...claim, claimType: e.target.value })
+                    }
+                  >
+                    {Object.entries({
+                      missing: "Chưa nhận hàng",
+                      short: "Thiếu sản phẩm",
+                      damaged: "Hư hỏng",
+                      wrong: "Sai / tráo hàng",
+                      missing_tag: "Mất tag",
+                      used: "Đã sử dụng",
+                      other: "Khác",
+                    }).map(([key, label]) => (
+                      <option key={key} value={key}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  Đơn vị chịu trách nhiệm
+                  <select
+                    value={claim.responsibleParty}
+                    onChange={(e) =>
+                      setClaim({ ...claim, responsibleParty: e.target.value })
+                    }
+                  >
+                    {Object.entries({
+                      carrier: "Đơn vị vận chuyển",
+                      platform: "Sàn thương mại điện tử",
+                      warehouse: "Kho",
+                      customer: "Khách trả hàng",
+                      other: "Cần xác minh",
+                    }).map(([key, label]) => (
+                      <option key={key} value={key}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  Đơn vị vận chuyển
+                  <select
+                    value={claim.carrierId}
+                    onChange={(e) =>
+                      setClaim({ ...claim, carrierId: e.target.value })
+                    }
+                  >
+                    <option value="">Chưa xác định</option>
+                    <OptionList rows={refs.carriers} />
+                  </select>
+                </label>
+                <label className="field">
+                  Kiện liên quan
+                  <select
+                    value={claim.parcelId}
+                    onChange={(e) =>
+                      setClaim({ ...claim, parcelId: e.target.value })
+                    }
+                  >
+                    <option value="">Toàn bộ yêu cầu</option>
+                    {data.parcels.map((p: Row) => (
+                      <option key={p.id} value={p.id}>
+                        {p.tracking_code}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  Người phụ trách
+                  <select
+                    value={claim.assignedTo}
+                    onChange={(e) =>
+                      setClaim({ ...claim, assignedTo: e.target.value })
+                    }
+                  >
+                    <option value="">Chưa phân công</option>
+                    <OptionList rows={refs.users} />
+                  </select>
+                </label>
+                <label className="field">
+                  Ngày đóng / kết thúc
+                  <input
+                    type="date"
+                    value={claim.closedOn}
+                    onChange={(e) =>
+                      setClaim({ ...claim, closedOn: e.target.value })
+                    }
+                  />
+                </label>
+              </>
+            )}
             <label className="field">
               Lý do khiếu nại
               <textarea
@@ -2119,6 +2498,18 @@ function ReturnCaseBody({
             onClick={() =>
               save("claim", {
                 caseId: r.id,
+                ...(refs.returnOperationsReady
+                  ? {
+                      requestId: claim.requestId,
+                      version: r.version,
+                      claimType: claim.claimType,
+                      responsibleParty: claim.responsibleParty,
+                      carrierId: claim.carrierId || null,
+                      parcelId: claim.parcelId || null,
+                      assignedTo: claim.assignedTo || null,
+                      closedOn: claim.closedOn || null,
+                    }
+                  : {}),
                 ...(claim.id ? { id: claim.id } : {}),
                 status: claim.status,
                 reason: claim.reason,
@@ -2140,11 +2531,17 @@ function ReturnCaseBody({
       )}
       <h3>Bằng chứng</h3>
       <label className="field">
-        Đính kèm ảnh hoặc PDF · tối đa 5 MB/file
+        {refs.returnOperationsReady
+          ? "Đính kèm ảnh / PDF / video · tối đa 50 MB/tệp"
+          : "Đính kèm ảnh hoặc PDF · tối đa 5 MB/tệp"}
         <input
           disabled={busy}
           type="file"
-          accept="image/png,image/jpeg,application/pdf"
+          accept={
+            refs.returnOperationsReady
+              ? "image/png,image/jpeg,image/webp,application/pdf,video/mp4,video/webm"
+              : "image/png,image/jpeg,application/pdf"
+          }
           onChange={(e) => {
             const file = e.target.files?.[0];
             if (file) void onEvidence(file);
@@ -2154,8 +2551,16 @@ function ReturnCaseBody({
       </label>
       {data.evidence.map((e: Row) => (
         <p key={e.id}>
-          <a href={"/api/returns/evidence/" + e.id}>{e.filename}</a> ·{" "}
-          {formatTime(e.created_at)}
+          <a
+            href={
+              e.storage
+                ? "/api/returns/operations/media/" + e.id
+                : "/api/returns/evidence/" + e.id
+            }
+          >
+            {e.filename}
+          </a>{" "}
+          · {formatTime(e.created_at)}
         </p>
       ))}
       <details>

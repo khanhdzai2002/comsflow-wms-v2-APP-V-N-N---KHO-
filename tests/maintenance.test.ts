@@ -35,11 +35,13 @@ let admin: User,
   shop: string,
   carrier: string;
 const old = "2020-01-01T00:00:00Z";
+// Verify the historical cleanup contract on its supported schema. Upgrade 020
+// retires permanent return deletion; its preservation guard is tested separately.
 beforeAll(async () => {
   await sql`DROP SCHEMA public CASCADE`;
   await sql`CREATE SCHEMA public`;
   for (const f of (await readdir("migrations"))
-    .filter((f) => f.endsWith(".sql"))
+    .filter((f) => f.endsWith(".sql") && f<"020_")
     .sort())
     await sql.unsafe(await readFile("migrations/" + f, "utf8"));
 });

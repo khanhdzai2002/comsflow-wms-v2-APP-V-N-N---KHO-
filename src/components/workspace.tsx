@@ -54,12 +54,12 @@ const navigation = [
   ["reports", "Báo cáo & Thống kê", ChartNoAxesCombined],
   ["imports", "Nhập dữ liệu", Upload],
   ["jobs", "Tác vụ dữ liệu", Clock],
-  ["returns", "Quản lý đơn hoàn", Undo2],
+  ["returns", "Quản lý & Đối soát hàng hoàn", Undo2],
   ["people", "Nhân viên & Ca làm việc", Users],
   ["settings", "Cấu hình hệ thống", Settings],
   ["guide", "Hướng dẫn sử dụng", BookOpen],
 ] as const;
-function workspaceLocation(user: User, hash: string) {
+function workspaceLocation(user: User, hash: string, operations = false) {
   const [requestedPage, requestedTab] = hash.replace(/^#/, "").split("/");
   const page =
     navigation.find(
@@ -67,9 +67,20 @@ function workspaceLocation(user: User, hash: string) {
         key === requestedPage &&
         (user.role !== "staff" || ["scan", "guide", "returns"].includes(key)),
     )?.[0] ?? (user.role === "staff" ? "scan" : "dashboard");
-  const tabs = visibleReturnTabs(user.role);
+  const tabs = visibleReturnTabs(user.role, operations);
+  const normalizedTab = operations
+    ? ((
+        {
+          import: "refunds",
+          list: "reconciliation",
+          claims: "inspection",
+          history: "reconciliation",
+          analytics: "reports",
+        } as Record<string, string>
+      )[requestedTab] ?? requestedTab)
+    : requestedTab;
   const returnTab =
-    tabs.find((tab) => tab.key === requestedTab)?.key ?? tabs[0].key;
+    tabs.find((tab) => tab.key === normalizedTab)?.key ?? tabs[0].key;
   const importMode =
     requestedTab === "excel" ? ("excel" as const) : ("pdf" as const);
   return { page, returnTab, importMode };
@@ -80,7 +91,7 @@ const titles: Row = {
     "Theo dõi nhập file và tải báo cáo đầy đủ, kể cả sau khi tải lại trang.",
   ],
   returns: [
-    "Quản lý đơn hoàn",
+    "Quản lý & Đối soát hàng hoàn",
     "Đối chiếu nguồn sàn, nhận kiện, kiểm hàng và theo dõi khiếu nại.",
   ],
   guide: [
@@ -377,6 +388,7 @@ function Shell({ user, onLogout }: { user: User; onLogout: () => void }) {
   const page = location.page;
   const [reconcileTab, setReconcileTab] = useState("unscanned");
   const { data: refs, error } = useData<Row>("references", 30000);
+  const operationsReady = refs?.returnOperationsReady === true;
   const [filters, setFilters] = useState<Row>({
     from: todayVN(),
     to: todayVN(),
@@ -415,14 +427,21 @@ function Shell({ user, onLogout }: { user: User; onLogout: () => void }) {
   }, []);
   useEffect(() => {
     const handleNavigation = () => {
-      setLocation(workspaceLocation(user, window.location.hash));
+      setLocation(
+        workspaceLocation(user, window.location.hash, operationsReady),
+      );
       setMenu(false);
     };
+    handleNavigation();
     window.addEventListener("hashchange", handleNavigation);
     return () => window.removeEventListener("hashchange", handleNavigation);
-  }, [user]);
+  }, [user, operationsReady]);
   const changePage = (key: string, returnTab?: ReturnTab | "pdf" | "excel") => {
-    const next = workspaceLocation(user, `#${key}/${returnTab ?? ""}`);
+    const next = workspaceLocation(
+      user,
+      `#${key}/${returnTab ?? ""}`,
+      refs?.returnOperationsReady === true,
+    );
     setLocation(next);
     const hash = `#${next.page}${next.page === "returns" ? "/" + next.returnTab : next.page === "imports" ? "/" + next.importMode : ""}`;
     if (window.location.hash !== hash) window.location.hash = hash;
@@ -529,9 +548,10 @@ function Shell({ user, onLogout }: { user: User; onLogout: () => void }) {
             {page === "returns" && (
               <span className="current-subpage">
                 {
-                  visibleReturnTabs(user.role).find(
-                    (tab) => tab.key === location.returnTab,
-                  )?.label
+                  visibleReturnTabs(
+                    user.role,
+                    refs?.returnOperationsReady === true,
+                  ).find((tab) => tab.key === location.returnTab)?.label
                 }
               </span>
             )}
@@ -578,13 +598,14 @@ function Shell({ user, onLogout }: { user: User; onLogout: () => void }) {
               <div className="eyebrow">OUTBOUND MANAGEMENT</div>
               <h1>
                 {page === "returns" && location.returnTab === "dashboard"
-                  ? "Tổng quan hoàn kho"
+                  ? "Tổng quan hàng hoàn"
                   : titles[page][0]}
               </h1>
               <p>{titles[page][1]}</p>
             </div>
             {user.role !== "staff" &&
               page === "returns" &&
+              !operationsReady &&
               location.returnTab !== "import" && (
                 <button
                   className="primary"

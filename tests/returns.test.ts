@@ -191,8 +191,11 @@ describe("Nguồn hoàn, kho và xử lý độc lập", () => {
     expect(
       (
         await receiveReturn(
-          staff,
-          receive(undefined, { parcelId: a.candidates[1].id }),
+          admin,
+          receive(undefined, {
+            parcelId: a.candidates[1].id,
+            note: "Xác minh mã đơn trên kiện thực tế",
+          }),
         )
       ).outcome,
     ).toBe("received");
@@ -306,6 +309,7 @@ describe("Nguồn hoàn, kho và xử lý độc lập", () => {
   });
   it("nhập cập nhật không mất ghi chú/khiếu nại; mã yêu cầu đổi đơn gốc không được ghi đè", async () => {
     const r = await imported();
+    await sql`UPDATE return_cases SET assigned_to=${staff.id} WHERE id=${r.id}`;
     await updateReturn(staff, {
       id: r.id,
       version: r.version,

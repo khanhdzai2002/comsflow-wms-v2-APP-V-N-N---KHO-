@@ -1344,13 +1344,11 @@ test("mixed BEST and JT PDF identifies exact carrier pages and cannot be forced 
     },
     { bytes: [...bytes], dueDate, id, oldId },
   );
-  await page
-    .getByLabel("File PDF nguồn", { exact: true })
-    .setInputFiles({
-      name: "BEST-named-but-mixed.pdf",
-      mimeType: "application/pdf",
-      buffer: bytes,
-    });
+  await page.getByLabel("File PDF nguồn", { exact: true }).setInputFiles({
+    name: "BEST-named-but-mixed.pdf",
+    mimeType: "application/pdf",
+    buffer: bytes,
+  });
   await page
     .getByRole("button", { name: "Đọc và đếm PDF", exact: true })
     .click();
@@ -1370,4 +1368,446 @@ test("mixed BEST and JT PDF identifies exact carrier pages and cannot be forced 
   expect(uploads).toBe(1);
   expect(oldCacheReads).toBe(0);
   expect(commits).toBe(0);
+});
+
+test("returns v2 has nine live pages, KPI drilldown preserves the clicked filter and mobile IDs stay text", async ({
+  page,
+}) => {
+  const now = new Date().toISOString();
+  await page.route("**/api/**", async (route) => {
+    const url = new URL(route.request().url()),
+      p = url.pathname.replace("/api/", "");
+    let body: any;
+    if (p === "references")
+      body = {
+        serverTime: now,
+        returnOperationsReady: true,
+        returnOperationsInstalled: true,
+        prescanReady: true,
+        prescanPermissionsReady: true,
+        warehouses: [{ id, name: "Kho ComsMiu" }],
+        channels: [{ id, name: "TikTok Shop" }],
+        carriers: [{ id, name: "J&T Express" }],
+        shops: [],
+        shifts: [],
+        users: [],
+        rules: [],
+        templates: [],
+        retention: [],
+        settings: {},
+      };
+    else if (p === "returns/operations/overview")
+      body = {
+        totals: {
+          total: 745,
+          received: 483,
+          needs_check: 151,
+          in_transit: 111,
+          cancelled: 634,
+          required: 745,
+          compensation: "0",
+        },
+        carriers: [
+          {
+            carrier_key: id,
+            carrier: "J&T Express",
+            total: 745,
+            required: 745,
+            received: 483,
+            chart_received: 483,
+            needs_check: 151,
+            in_transit: 111,
+            chart_other: 0,
+          },
+        ],
+        days: [{ day: "2026-11-08", total: 745 }],
+        states: [
+          { primary_state: "received", total: 483 },
+          { primary_state: "needs_check", total: 151 },
+          { primary_state: "in_transit", total: 111 },
+        ],
+        products: [],
+        claimMonths: [],
+      };
+    else if (p === "returns/operations/cases")
+      body = {
+        rows: [
+          {
+            id,
+            external_id: "000586890280579270204",
+            order_code: "586890280579270204",
+            workflow: "delivery_failed",
+            tracking_codes: "862678510680",
+            carrier: "J&T Express",
+            primary_state: "needs_check",
+            inspection_status: "pending",
+            goods_value: "20000",
+            expected_quantity: 2,
+            received_quantity: 0,
+            quantity_known: false,
+          },
+        ],
+        total: 151,
+        page: 1,
+      };
+    else if (p === "returns/operations/receipts")
+      body = { rows: [], total: 0, page: 1 };
+    else return route.fallback();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(body),
+    });
+  });
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.goto("/#returns/dashboard");
+  await expect(
+    page.getByRole("tab", { name: /Đơn giao thất bại/ }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("tablist", { name: "Quản lý và Đối soát hàng hoàn" })
+      .getByRole("tab"),
+  ).toHaveCount(9);
+  await expect(
+    page.locator(".kpi").filter({ hasText: "Tổng hồ sơ phát sinh hoàn" }),
+  ).toContainText("745");
+  await page.screenshot({
+    path:
+      "test-results/returns-v2-overview-" + test.info().project.name + ".png",
+    fullPage: true,
+  });
+  const request = page.waitForRequest(
+    (r) =>
+      r.url().includes("/returns/operations/cases?") &&
+      new URL(r.url()).searchParams.get("state") === "needs_check",
+  );
+  await page
+    .locator(".kpi")
+    .filter({ hasText: "Chưa nhận – Cần kiểm tra" })
+    .getByRole("button", { name: "151", exact: true })
+    .click();
+  await request;
+  await expect(
+    page
+      .locator(".return-operations")
+      .getByText("586890280579270204", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page
+      .locator(".return-operations")
+      .getByText("862678510680", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("tab", { name: /Đối soát hàng hoàn/ }),
+  ).toHaveAttribute("aria-selected", "true");
+  expect(errors).toEqual([]);
+  await page.screenshot({
+    path:
+      "test-results/returns-v2-drilldown-" + test.info().project.name + ".png",
+    fullPage: true,
+  });
+});
+
+test("production CSV/XLSX browser workers preserve identifiers and create a real downloadable carrier workbook", async ({
+  page,
+}) => {
+  const { readdir } = await import("node:fs/promises");
+  const ExcelJS = (await import("exceljs")).default;
+  const assets = await readdir("dist/assets");
+  const intake = assets.find((n) => /^browser-return-intake-.*\.js$/.test(n))!;
+  const report = assets.find((n) => /^browser-return-report-.*\.js$/.test(n))!;
+  const ids = [
+    "862678510680",
+    "1234567890123456",
+    "586890280579270204",
+    "12345678901234567890",
+    "0000586890280579270204",
+    "TTVN1120898402-A",
+  ];
+  const book = new ExcelJS.Workbook(),
+    sheet = book.addWorksheet("Raw");
+  sheet.addRow(["Order ID", "Tracking ID"]);
+  ids.forEach((id) => sheet.addRow([id, id]));
+  const bytes = await book.xlsx.writeBuffer();
+  await page.goto("/#returns/dashboard");
+  const result = await page.evaluate(
+    async ({ intake, report, bytes, ids, assetsRoot }) => {
+      const root = assetsRoot;
+      function message(worker: Worker, body: any): Promise<any> {
+        return new Promise((resolve, reject) => {
+          const timer = setTimeout(
+            () => reject(new Error("Worker timeout")),
+            30000,
+          );
+          worker.onmessage = (e) => {
+            clearTimeout(timer);
+            if (e.data.type === "error") reject(new Error(e.data.error));
+            else resolve(e.data);
+          };
+          worker.onerror = (e) => {
+            clearTimeout(timer);
+            reject(new Error(e.message));
+          };
+          worker.postMessage(body);
+        });
+      }
+      const reader = new Worker(root + intake, { type: "module" });
+      const xlsx = new File([new Uint8Array(bytes)], "source.xlsx", {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const ready = await message(reader, { type: "open", file: xlsx });
+      const rows = await message(reader, { type: "rows", offset: 0 });
+      const csv = new File(
+        [
+          "Order ID,Tracking ID\r\n" +
+            ids.map((id) => id + "," + id).join("\r\n"),
+        ],
+        "source.csv",
+        { type: "text/csv" },
+      );
+      await message(reader, { type: "open", file: csv });
+      const csvRows = await message(reader, { type: "rows", offset: 0 });
+      const large = new File(
+        [
+          "Order ID,Tracking ID\r\n" +
+            Array.from(
+              { length: 50000 },
+              (_, i) =>
+                "LOAD-" +
+                String(i).padStart(20, "0") +
+                ",86" +
+                String(i).padStart(10, "0"),
+            ).join("\r\n"),
+        ],
+        "large.csv",
+        { type: "text/csv" },
+      );
+      const largeReady = await message(reader, { type: "open", file: large });
+      const last = await message(reader, { type: "rows", offset: 49800 });
+      if (
+        largeReady.rows !== 50000 ||
+        last.rows.length !== 200 ||
+        last.rows.at(-1)[0] !== "LOAD-" + String(49999).padStart(20, "0")
+      )
+        throw new Error("Large CSV checkpoint mismatch");
+      reader.terminate();
+      const writer = new Worker(root + report, { type: "module" });
+      const file = await message(writer, {
+        rows: ids.map((id, i) => ({
+          carrier: i % 2 ? "BEST Express" : "J&T Express",
+          row_data: { order: id, tracking: id, sku: id, quantity: 1 },
+        })),
+        meta: {
+          created_at: "2026-11-08T10:00:00Z",
+          total_cases: ids.length,
+          filters: {},
+        },
+      });
+      writer.terminate();
+      return {
+        ready,
+        rows: rows.rows,
+        csvRows: csvRows.rows,
+        output: Array.from(new Uint8Array(file.bytes)),
+      };
+    },
+    {
+      intake,
+      report,
+      bytes: Array.from(new Uint8Array(bytes)),
+      ids,
+      assetsRoot:
+        process.env.E2E_ASSET_PREFIX ??
+        "/@fs/workspace/comsflow-wms-supabase/dist/assets/",
+    },
+  );
+  expect(result.ready.rows).toBe(6);
+  expect(result.rows.map((r: string[]) => r[0])).toEqual(ids);
+  expect(result.csvRows.map((r: string[]) => r[0])).toEqual(ids);
+  const loaded = new ExcelJS.Workbook();
+  await loaded.xlsx.load(
+    Buffer.from(result.output) as unknown as Parameters<
+      typeof loaded.xlsx.load
+    >[0],
+  );
+  const values: string[] = [];
+  for (const s of loaded.worksheets)
+    s.eachRow((r, i) => {
+      if (i > 6) {
+        expect(r.getCell(2).type).toBe(ExcelJS.ValueType.String);
+        values.push(String(r.getCell(2).value));
+      }
+    });
+  expect(values.sort()).toEqual([...ids].sort());
+});
+
+test("returns v2 direct import resumes staged rows and retries a lost commit without a Node processor", async ({
+  page,
+}) => {
+  const staged: string[][] = [];
+  let committed = false,
+    lostRows = false,
+    lostCommit = false,
+    uploads = 0,
+    saves = 0;
+  const source =
+    "Order ID,Tracking ID,Order Status,Created Time,SKU ID,Quantity\r\n000586890280579270204,862678510680,Delivery failed,01/11/2026 08:00:00,SKU-A,1\r\n000586890280579270205,TTVN1120898402,Delivery failed,01/11/2026 08:00:00,SKU-B,1";
+  await page.route("**/api/references", (r) =>
+    r.fulfill({
+      json: {
+        serverTime: new Date().toISOString(),
+        returnOperationsReady: true,
+        returnOperationsInstalled: true,
+        workerAvailable: false,
+        prescanReady: true,
+        prescanPermissionsReady: true,
+        warehouses: [{ id, name: "Kho ComsMiu" }],
+        channels: [{ id, name: "TikTok Shop" }],
+        carriers: [{ id, name: "J&T Express" }],
+        shops: [],
+        shifts: [],
+        users: [],
+        rules: [],
+        templates: [],
+        retention: [],
+        settings: {},
+      },
+    }),
+  );
+  await page.route("**/api/returns/operations/cases?**", (r) =>
+    r.fulfill({ json: { rows: [], total: 0, page: 1 } }),
+  );
+  await page.route("https://storage.example.test/**", (r) =>
+    r.fulfill({ json: { Key: "fixture", Id: jobId } }),
+  );
+  await page.route("**/api/jobs/**", (r) => {
+    const path = new URL(r.request().url()).pathname,
+      action = path.split("/")[4];
+    if (path === "/api/jobs/uploads") {
+      uploads++;
+      expect(r.request().postDataJSON().route).toBe("returns/intake/preview");
+      return r.fulfill({
+        json: {
+          id: jobId,
+          status: "waiting_upload",
+          path: "input/return",
+          token: "fixture-upload",
+          url: "https://storage.example.test",
+          key: "fixture-public",
+          bucket: "comsflow-private",
+        },
+      });
+    }
+    if (action === "finalize")
+      return r.fulfill({ json: { id: jobId, status: "queued" } });
+    if (action === "intake-start") {
+      expect(r.request().postDataJSON().totalRows).toBe(2);
+      return r.fulfill({
+        json: {
+          id: jobId,
+          state: "staging",
+          staged_rows: staged.length,
+          total_rows: 2,
+        },
+      });
+    }
+    if (action === "intake-rows") {
+      const b = r.request().postDataJSON();
+      expect(b.offset).toBe(staged.length);
+      staged.push(...b.rows);
+      if (!lostRows) {
+        lostRows = true;
+        return r.abort("failed");
+      }
+      return r.fulfill({ json: { stagedRows: staged.length, totalRows: 2 } });
+    }
+    if (action === "intake-preview")
+      return r.fulfill({
+        json: {
+          batch: { state: "ready" },
+          summary: {
+            rows: 2,
+            valid: 2,
+            requests: 2,
+            new_requests: 2,
+            tracking: 2,
+            errors: 0,
+          },
+          rows: staged.map((v, i) => ({
+            row_number: i + 2,
+            normalized: { order: v[0], tracking: v[1], status: v[2] },
+            warnings: [],
+          })),
+          errors: [],
+          canCommit: true,
+          detectedMapping: {
+            mapping: { order: "Order ID", tracking: "Tracking ID" },
+          },
+        },
+      });
+    if (action === "intake-commit") {
+      saves++;
+      committed = true;
+      if (!lostCommit) {
+        lostCommit = true;
+        return r.abort("failed");
+      }
+      return r.fulfill({
+        json: {
+          done: true,
+          batch: {
+            state: "completed",
+            imported_rows: 2,
+            total_rows: 2,
+            summary: { valid: 2 },
+          },
+        },
+      });
+    }
+    return r.fulfill({
+      json: {
+        id: jobId,
+        status: committed ? "succeeded" : "queued",
+        expiresAt: "2099-01-01",
+      },
+    });
+  });
+  await page.goto("/#returns/delivery");
+  const module = page.locator(".return-operations");
+  await module
+    .getByRole("button", { name: "Nhập dữ liệu", exact: true })
+    .click();
+  await page
+    .getByLabel("Tệp dữ liệu hàng hoàn", { exact: true })
+    .setInputFiles({
+      name: "tik-tok.csv",
+      mimeType: "text/csv",
+      buffer: Buffer.from(source),
+    });
+  const read = module.getByRole("button", {
+    name: "Đọc và đối chiếu tệp",
+    exact: true,
+  });
+  await read.click();
+  await expect(read).toBeEnabled();
+  await read.click();
+  const save = module.getByRole("button", {
+    name: "Xác nhận nhập vào hệ thống",
+    exact: true,
+  });
+  await expect(save).toBeVisible();
+  expect(staged).toHaveLength(2);
+  expect(staged[0][0]).toBe("000586890280579270204");
+  expect(uploads).toBe(1);
+  await save.click();
+  await expect(save).toBeEnabled();
+  await save.click();
+  await expect(
+    module.getByText("Đã có xác nhận lưu trên máy chủ.", { exact: true }),
+  ).toBeVisible();
+  expect(saves).toBe(2);
+  expect(committed).toBe(true);
+  expect(staged).toHaveLength(2);
 });

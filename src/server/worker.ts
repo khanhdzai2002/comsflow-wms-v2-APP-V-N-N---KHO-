@@ -1,3 +1,11 @@
+import {
+  returnIntakeErrors,
+  recordReturnIntakeReadError,
+  beginReturnIntake,
+  appendReturnIntake,
+  previewReturnIntake,
+  commitReturnIntakeStep,
+} from "../lib/return-intake-jobs";
 import { AppRequest, AppResponse } from "./http";
 import { requestContext, type AppEnv, type RequestState } from "./context";
 import { handler } from "./api";
@@ -87,6 +95,22 @@ async function route(req: AppRequest) {
   }
   const [, id, action] = path.split("/");
   const job = await ownedJob(user, id);
+  if (action === "intake-read-error" && req.method === "POST")
+    return AppResponse.json(
+      await recordReturnIntakeReadError(user, id, await read()),
+    );
+  if (action === "intake-errors" && req.method === "POST")
+    return AppResponse.json(await returnIntakeErrors(user, id, await read()));
+  if (action === "intake-start" && req.method === "POST")
+    return AppResponse.json(await beginReturnIntake(user, id, await read()));
+  if (action === "intake-rows" && req.method === "POST")
+    return AppResponse.json(
+      await appendReturnIntake(user, id, await read(600000)),
+    );
+  if (action === "intake-preview" && req.method === "POST")
+    return AppResponse.json(await previewReturnIntake(user, id));
+  if (action === "intake-commit" && req.method === "POST")
+    return AppResponse.json(await commitReturnIntakeStep(user, id));
   if (action === "pdf-pages" && req.method === "POST")
     return AppResponse.json(
       await appendSourcePages(user, id, await read(288 * 1024)),

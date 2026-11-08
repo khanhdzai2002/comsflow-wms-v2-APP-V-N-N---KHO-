@@ -75,7 +75,7 @@ DO $private_bucket$
 BEGIN
  IF to_regclass('storage.buckets') IS NOT NULL THEN
   INSERT INTO storage.buckets(id,name,public,file_size_limit,allowed_mime_types)
-  VALUES('comsflow-private','comsflow-private',false,52428800,ARRAY['application/pdf','application/octet-stream','text/csv','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'])
+  VALUES('comsflow-private','comsflow-private',false,52428800,ARRAY['application/pdf','application/octet-stream','text/csv','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','image/jpeg','image/png','image/webp','video/mp4','video/webm'])
   ON CONFLICT(id) DO UPDATE SET public=false,file_size_limit=excluded.file_size_limit,allowed_mime_types=excluded.allowed_mime_types;
  END IF;
 END
@@ -95,6 +95,7 @@ console.log(
 for (const upgradeName of [
   "018_prescan_reconciliation.sql",
   "019_prescan_runtime_permissions.sql",
+  "020_return_operations.sql",
 ]) {
   const prerequisiteNames = names.filter((name) => name < upgradeName);
   const sections = [];
@@ -119,7 +120,8 @@ END $apply_upgrade$;`);
   await writeFile(
     "supabase/upgrade-" + upgradeName.slice(0, 3) + ".sql",
     `-- ComsFlow: select project lyeyjfvxmqruszgfrjze and take a database backup first.
--- Adds schema/runtime grants only; no existing scans or shipments are changed.
+-- Adds schema/runtime grants and conservative projections from existing return sources.
+-- Existing scans, receipts, source IDs and audit history are preserved; review migration 020 and the rollout guide.
 BEGIN;
 SET LOCAL search_path=public,extensions;
 SELECT pg_advisory_xact_lock(742917);
@@ -134,7 +136,7 @@ BEGIN
 END $upgrade_guard$;
 ${sections.join("\n")}
 COMMIT;
-SELECT to_regclass('public.effective_scan_events') IS NOT NULL AS prescan_ready;
+SELECT to_regclass('public.effective_scan_events') IS NOT NULL AS prescan_ready,to_regclass('public.return_operation_rows') IS NOT NULL AS return_operations_ready;
 `,
   );
 }

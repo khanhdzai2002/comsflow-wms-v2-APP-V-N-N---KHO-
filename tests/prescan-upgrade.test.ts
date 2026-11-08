@@ -76,7 +76,7 @@ it("nâng cấp từ 17 migration giữ lịch sử, chạy lại được và k
   }
   expect(await prescanReady(sql)).toBe(true);
   expect((await sql`SELECT count(*)::int n FROM schema_migrations`)[0].n).toBe(
-    19,
+    20,
   );
   expect(await sql`SELECT * FROM scan_events`).toEqual(old);
   expect(await sql`SELECT * FROM scan_reconciliations`).toHaveLength(0);

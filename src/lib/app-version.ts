@@ -1,1 +1,1 @@
-export const APP_REVISION = "2026-10-26.best-pdf-1";
+export const APP_REVISION = "2026-11-09.returns-v2-1";

@@ -29,8 +29,7 @@ import {
   returnImportHistory,
   recordReturnUpload,
 } from "../src/lib/return-settings";
-import { previewCleanup, executeCleanup } from "../src/lib/maintenance";
-import { CLEANUP_CONFIRMATION } from "../src/lib/maintenance-domain";
+import { previewCleanup } from "../src/lib/maintenance";
 import { classifyReason, mergeReturnSource } from "../src/lib/return-source";
 import { returnCopyContent } from "../src/components/return-detail-info";
 import { returnRow, returnCsv } from "./return-fixture";
@@ -621,7 +620,7 @@ describe("Đơn hoàn V2: nguồn, nhận diện và tỷ lệ thật", () => {
       ),
     ).rejects.toMatchObject({ status: 403 });
   });
-  it("lưu lần đọc lỗi, chỉ summary giữ sau dọn; chi tiết diff bị xoá cùng hồ sơ", async () => {
+  it("lưu lần đọc lỗi và giữ chi tiết nguồn khi v2 không cho dọn vĩnh viễn", async () => {
     await recordReturnUpload(
       admin,
       "bad.csv",
@@ -629,45 +628,17 @@ describe("Đơn hoàn V2: nguồn, nhận diện và tỷ lệ thật", () => {
       { errors: 1 },
       ["Thiếu SKU"],
     );
-    expect(await sql`SELECT id FROM return_upload_attempts`).toHaveLength(1);
     await addReturns();
-    const r = (await returnList(admin, {})).rows[0];
-    await sql`UPDATE return_cases SET processing_status='closed_unsuccessful',requested_at='2020-01-01',updated_at='2020-01-01' WHERE id=${r.id}`;
-    const [oldImport] =
-      await sql`INSERT INTO return_imports(file_hash,filename,shop_id,warehouse_id,rows_count,summary,created_by,created_at) VALUES('old-fixture','old.csv',${r.shop_id},${warehouse},1,'{}',${admin.id},'2020-01-01') RETURNING id`;
-    const [oldCase] =
-      await sql`INSERT INTO return_cases(shop_id,warehouse_id,external_id,order_code,requested_at,platform_status,return_type,source_data,source_hash,last_import_id,processing_status,updated_at) VALUES(${r.shop_id},${warehouse},'OLD-FIXTURE','OLD-ORDER','2020-01-01','Closed','refund','[]','old-fixture',${oldImport.id},'closed_unsuccessful','2020-01-01') RETURNING id`;
-    await sql`INSERT INTO return_import_changes(import_id,case_id,external_id,changes) VALUES(${oldImport.id},${oldCase.id},'OLD-FIXTURE','[{"field":"status","before":"Open","after":"Closed"}]')`;
-    await sql`INSERT INTO return_import_results(import_id,new_count,updated_count,unchanged_count,status_count,finance_count) VALUES(${oldImport.id},1,0,0,0,0)`;
-    const p = await previewCleanup(admin, {
-      kind: "returns",
-      before: "2021-01-01",
-      warehouse,
-    });
-    expect(p.summary.selected).toBe(1);
-    await executeCleanup(admin, {
-      jobId: p.id,
-      confirmation: CLEANUP_CONFIRMATION,
-      acknowledge: true,
-      reason: "Dọn hồ sơ fixture đã kết thúc",
-    });
-    expect(
-      await sql`SELECT id FROM return_import_changes WHERE case_id=${oldCase.id}`,
-    ).toHaveLength(0);
-    expect(
-      await sql`SELECT id FROM return_import_changes WHERE case_id=${r.id}`,
-    ).toHaveLength(1);
-    expect(
-      await sql`SELECT import_id FROM return_import_results WHERE import_id=${oldImport.id}`,
-    ).toHaveLength(1);
+    const before = await sql`SELECT * FROM return_import_changes`;
     await expect(
-      executeCleanup(staff, {
-        jobId: p.id,
-        confirmation: CLEANUP_CONFIRMATION,
-        acknowledge: true,
-        reason: "No access permission",
+      previewCleanup(admin, {
+        kind: "returns",
+        before: "2021-01-01",
+        warehouse,
       }),
-    ).rejects.toMatchObject({ status: 403 });
+    ).rejects.toMatchObject({ status: 409 });
+    expect(await sql`SELECT * FROM return_import_changes`).toEqual(before);
+    expect(await sql`SELECT id FROM return_upload_attempts`).toHaveLength(1);
   });
   it("merge bảo toàn số 0 tài chính hợp lệ và raw trống của file mới không thành xoá dữ liệu", async () => {
     const before = (

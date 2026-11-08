@@ -1,0 +1,14 @@
+{
+  "dataset": "synthetic, local *_test only",
+  "rows": 20000,
+  "stagingPreviewMs": 16658,
+  "commitSteps": 200,
+  "commitTotalMs": 47538,
+  "maxCommitMs": 763,
+  "overviewMs": 460,
+  "lastPageMs": 537,
+  "elapsedMs": 65215,
+  "environment": "Local PostgreSQL *_test; API business functions real; private Storage mocked; other local verification jobs ran concurrently",
+  "limits": "Synthetic 20,000-row end-to-end server import; not a hosted SLA or a concurrent multi-device throughput claim",
+  "verification_date_vietnam": "2026-11-09"
+}

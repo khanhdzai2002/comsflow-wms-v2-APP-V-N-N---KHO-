@@ -17,6 +17,7 @@ export const fileRoutes = [
   "returns/sales/commit",
   RETURN_CSV_ROUTE,
   "sources/browser/preview",
+  "returns/intake/preview",
 ];
 export function reportRoute(path: string, params: URLSearchParams) {
   return (
@@ -74,7 +75,16 @@ export async function createUpload(user: User, raw: unknown) {
       413,
       "CSV TikTok nhập trực tiếp tối đa 1 MB / 2.000 dòng. Chia nhỏ file lớn trước khi nhập.",
     );
-  if (data.size > (data.route.startsWith("sources/") ? 50 : 5) * 1024 * 1024)
+  if (
+    data.size >
+    (data.route.startsWith("sources/")
+      ? 50
+      : data.route.startsWith("returns/intake/")
+        ? 10
+        : 5) *
+      1024 *
+      1024
+  )
     throw new AppError(413, "PDF tối đa 50 MB; Excel/CSV tối đa 5 MB");
   if (
     !(data.route.startsWith("sources/") ? /\.pdf$/i : /\.(xlsx|csv)$/i).test(
@@ -161,7 +171,7 @@ export async function claimJob() {
   const sql = db(),
     token = randomUUID();
   const [row] =
-    await sql`WITH candidate AS (SELECT id FROM data_jobs WHERE route NOT LIKE 'returns/csv/%' AND route NOT LIKE 'sources/browser/%' AND expires_at>now() AND attempts<max_attempts AND ((status='queued' AND next_attempt_at<=now()) OR (status='running' AND lease_expires_at<now())) ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE data_jobs j SET status='running',attempts=attempts+1,lease_token=${token},lease_expires_at=now()+interval '10 minutes',updated_at=now(),error=NULL FROM candidate c WHERE j.id=c.id RETURNING j.*`;
+    await sql`WITH candidate AS (SELECT id FROM data_jobs WHERE route NOT LIKE 'returns/intake/%' AND route NOT LIKE 'returns/csv/%' AND route NOT LIKE 'sources/browser/%' AND expires_at>now() AND attempts<max_attempts AND ((status='queued' AND next_attempt_at<=now()) OR (status='running' AND lease_expires_at<now())) ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE data_jobs j SET status='running',attempts=attempts+1,lease_token=${token},lease_expires_at=now()+interval '10 minutes',updated_at=now(),error=NULL FROM candidate c WHERE j.id=c.id RETURNING j.*`;
   return row ?? null;
 }
 export async function failJob(

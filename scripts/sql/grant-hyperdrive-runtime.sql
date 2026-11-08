@@ -67,6 +67,21 @@ BEGIN
     CREATE POLICY comsflow_server_access ON public.scan_reconciliations
       TO comsflow_connection_check USING (true) WITH CHECK (true);
   END IF;
+  -- Optional return operations v2, explicit table allowlist only.
+  IF to_regclass('public.return_operation_rows') IS NOT NULL THEN
+    FOREACH t IN ARRAY ARRAY['return_handover_sessions','return_receipts','return_receipt_events','return_source_versions','return_import_archives','return_intake_batches','return_intake_rows','return_media','return_report_sessions','return_report_rows'] LOOP
+      IF t IN ('return_receipt_events','return_source_versions') THEN
+        EXECUTE format('REVOKE UPDATE,DELETE ON public.%I FROM comsflow_connection_check',t);
+        EXECUTE format('GRANT SELECT,INSERT ON public.%I TO comsflow_connection_check',t);
+      ELSE
+        EXECUTE format('GRANT SELECT,INSERT,UPDATE,DELETE ON public.%I TO comsflow_connection_check',t);
+      END IF;
+      EXECUTE format('DROP POLICY IF EXISTS comsflow_server_access ON public.%I',t);
+      EXECUTE format('CREATE POLICY comsflow_server_access ON public.%I TO comsflow_connection_check USING (true) WITH CHECK (true)',t);
+    END LOOP;
+    GRANT SELECT ON public.return_operation_rows TO comsflow_connection_check;
+    GRANT EXECUTE ON FUNCTION public.return_operation_carrier(text,text,uuid,text) TO comsflow_connection_check;
+  END IF;
 END
 $permissions$;
 COMMIT;

@@ -5,6 +5,7 @@ import tailwind from "@tailwindcss/vite";
 export default defineConfig({
   plugins: [react(), tailwind()],
   resolve: { alias: { "@": new URL("./src", import.meta.url).pathname } },
+  optimizeDeps: { include: ["saxes", "csv-parse/browser/esm/sync"] },
   server: {
     host: "0.0.0.0",
     port: 5173,

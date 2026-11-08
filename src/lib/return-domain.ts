@@ -48,9 +48,69 @@ export const returnTabs = [
     managerOnly: true,
   },
 ] as const;
-export type ReturnTab = (typeof returnTabs)[number]["key"];
-export const visibleReturnTabs = (role: string) =>
-  returnTabs.filter((tab) => role !== "staff" || !tab.managerOnly);
+export const operationReturnTabs = [
+  {
+    key: "dashboard",
+    label: "Tổng quan hàng hoàn",
+    description: "Chỉ tiêu và việc cần xử lý",
+    managerOnly: true,
+  },
+  {
+    key: "delivery",
+    label: "Đơn giao thất bại",
+    description: "Theo dõi hàng quay đầu",
+    managerOnly: true,
+  },
+  {
+    key: "refunds",
+    label: "Trả hàng – Hoàn tiền",
+    description: "Theo từng yêu cầu và SKU",
+    managerOnly: true,
+  },
+  {
+    key: "scan",
+    label: "Tít nhận hàng hoàn",
+    description: "Nhận thực tế, kể cả trước nguồn",
+    managerOnly: false,
+  },
+  {
+    key: "reconciliation",
+    label: "Đối soát hàng hoàn",
+    description: "Nguồn sàn và sổ nhận kho",
+    managerOnly: false,
+  },
+  {
+    key: "unreceived",
+    label: "Đơn chưa nhận – Cần kiểm tra",
+    description: "Tra soát theo hãng vận chuyển",
+    managerOnly: true,
+  },
+  {
+    key: "inspection",
+    label: "Kiểm hàng & Khiếu nại",
+    description: "Số lượng, tình trạng và bồi thường",
+    managerOnly: false,
+  },
+  {
+    key: "updates",
+    label: "Lịch sử nhập dữ liệu",
+    description: "Tiến độ, loại bỏ và khôi phục",
+    managerOnly: true,
+  },
+  {
+    key: "reports",
+    label: "Báo cáo & Xuất Excel",
+    description: "Mã đầy đủ, từng hãng một sheet",
+    managerOnly: true,
+  },
+] as const;
+export type ReturnTab =
+  | (typeof returnTabs)[number]["key"]
+  | (typeof operationReturnTabs)[number]["key"];
+export const visibleReturnTabs = (role: string, operations = false) =>
+  (operations ? operationReturnTabs : returnTabs).filter(
+    (tab) => role !== "staff" || !tab.managerOnly,
+  );
 
 export const returnProcessing: Record<string, string> = {
   pending: "Chờ xử lý",
@@ -66,6 +126,13 @@ export const returnProcessing: Record<string, string> = {
   closed_unsuccessful: "Đóng không thành công",
 };
 export const returnInspection: Record<string, string> = {
+  swapped: "Hàng bị tráo",
+  missing_tag: "Mất tag",
+  used: "Hàng đã qua sử dụng",
+  dirty: "Hàng bị bẩn",
+  torn: "Rách / hỏng",
+  missing_accessory: "Thiếu phụ kiện",
+  other: "Vấn đề khác",
   pending: "Đã nhận kiện · chờ kiểm",
   full: "Nhận đủ · nguyên vẹn",
   short: "Nhận thiếu",

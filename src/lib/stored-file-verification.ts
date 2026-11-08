@@ -9,15 +9,19 @@ type FileJob = {
   sha256: string;
 };
 export async function verifyStoredPdf(job: FileJob) {
+  return verifyStoredFile(job, "pdf", MAX_SOURCE_PDF_BYTES);
+}
+export async function verifyStoredFile(
+  job: FileJob,
+  kind: "pdf" | "xlsx" | "csv",
+  maxBytes = 10 * 1024 * 1024,
+) {
   const size = Number(job.file_size);
-  if (!size || size > MAX_SOURCE_PDF_BYTES)
-    throw new AppError(413, "PDF tối đa 50 MB.");
+  if (!size || size > maxBytes)
+    throw new AppError(413, `Tệp tối đa ${maxBytes / 1024 / 1024} MB.`);
   const info = await storage().info(job.storage_path);
   if (info.error || info.data.size !== size)
-    throw new AppError(
-      409,
-      "PDF chưa tải đủ hoặc kích thước file gốc không khớp.",
-    );
+    throw new AppError(409, "Tệp gốc chưa tải đủ hoặc kích thước không khớp.");
   type DigestStream = WritableStream<Uint8Array> & {
     digest: Promise<ArrayBuffer>;
   };
@@ -30,12 +34,12 @@ export async function verifyStoredPdf(job: FileJob) {
   if (NativeDigestStream) {
     const signed = await storage().createSignedUrl(job.storage_path, 120);
     if (signed.error)
-      throw new AppError(503, "Chưa đọc được PDF gốc từ Storage. Thử lại.");
+      throw new AppError(503, "Chưa đọc được tệp gốc từ Storage. Thử lại.");
     const response = await fetch(signed.data.signedUrl, {
       signal: AbortSignal.timeout(90000),
     });
     if (!response.ok || !response.body)
-      throw new AppError(503, "Chưa tải được PDF gốc để kiểm tra.");
+      throw new AppError(503, "Chưa tải được tệp gốc để kiểm tra.");
     const digest = new NativeDigestStream("SHA-256");
     const digestResult = digest.digest;
     // A failed pipe may reject both promises; observe the digest as well.
@@ -51,8 +55,8 @@ export async function verifyStoredPdf(job: FileJob) {
                 bytes.subarray(0, 5 - prefix.length),
               );
             total += bytes.byteLength;
-            if (total > size || total > MAX_SOURCE_PDF_BYTES)
-              throw new AppError(400, "Kích thước PDF gốc không khớp.");
+            if (total > size || total > maxBytes)
+              throw new AppError(400, "Kích thước tệp gốc không khớp.");
             controller.enqueue(bytes);
           },
         }),
@@ -61,24 +65,31 @@ export async function verifyStoredPdf(job: FileJob) {
     hash = Array.from(new Uint8Array(await digestResult), (b) =>
       b.toString(16).padStart(2, "0"),
     ).join("");
-    if (total !== size || prefix !== "%PDF-")
-      throw new AppError(400, "PDF gốc không đúng định dạng hoặc kích thước.");
+    if (
+      total !== size ||
+      (kind === "pdf" && prefix !== "%PDF-") ||
+      (kind === "xlsx" && !prefix.startsWith("PK"))
+    )
+      throw new AppError(400, "Tệp gốc không đúng định dạng hoặc kích thước.");
   } else {
     // Node test/processor runtime; Cloudflare uses its native streaming digest above.
     const result = await storage().download(job.storage_path);
     if (result.error || !result.data)
-      throw new AppError(503, "Chưa đọc được PDF gốc từ Storage.");
+      throw new AppError(503, "Chưa đọc được tệp gốc từ Storage.");
     if (result.data.size !== size)
-      throw new AppError(400, "Kích thước PDF gốc không khớp.");
+      throw new AppError(400, "Kích thước tệp gốc không khớp.");
     const bytes = Buffer.from(await result.data.arrayBuffer());
-    if (bytes.subarray(0, 5).toString() !== "%PDF-")
-      throw new AppError(400, "File gốc không phải PDF.");
+    if (
+      (kind === "pdf" && bytes.subarray(0, 5).toString() !== "%PDF-") ||
+      (kind === "xlsx" && bytes.subarray(0, 2).toString() !== "PK")
+    )
+      throw new AppError(400, "Tệp gốc không đúng định dạng đã chọn.");
     hash = createHash("sha256").update(bytes).digest("hex");
   }
   if (hash !== job.sha256)
     throw new AppError(
       400,
-      "PDF gốc không khớp SHA-256. Chọn lại file; chưa nhập dữ liệu.",
+      "Tệp gốc không khớp SHA-256. Chọn lại tệp; chưa nhập dữ liệu.",
     );
   return hash;
 }

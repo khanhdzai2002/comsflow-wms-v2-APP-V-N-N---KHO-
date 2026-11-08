@@ -18,7 +18,7 @@ process.on("SIGINT", () => {
 async function cleanup() {
   const sql = db();
   const jobs =
-    await sql`SELECT id,storage_path,result FROM data_jobs WHERE expires_at<now() AND status NOT IN ('running') AND storage_cleaned_at IS NULL LIMIT 20`;
+    await sql`SELECT id,storage_path,result FROM data_jobs WHERE route NOT LIKE 'returns/intake/%' AND expires_at<now() AND status NOT IN ('running') AND storage_cleaned_at IS NULL LIMIT 20`;
   for (const job of jobs) {
     const prefix = "results/" + job.id;
     const listed = await storage().list(prefix, { limit: 100 });
@@ -34,7 +34,7 @@ async function cleanup() {
     }
     await sql`UPDATE data_jobs SET storage_cleaned_at=now(),storage_path=NULL,result=jsonb_build_object('expired',true),payload='{}'::jsonb,status=CASE WHEN status IN ('queued','waiting_upload') THEN 'cancelled' ELSE status END,error=CASE WHEN status IN ('queued','waiting_upload') THEN 'Tác vụ đã hết hạn' ELSE error END WHERE id=${job.id}`;
   }
-  await sql`DELETE FROM data_jobs WHERE id IN (SELECT id FROM data_jobs WHERE expires_at<now()-interval '30 days' AND status NOT IN ('running') LIMIT 1000)`;
+  await sql`DELETE FROM data_jobs WHERE id IN (SELECT id FROM data_jobs WHERE route NOT LIKE 'returns/intake/%' AND expires_at<now()-interval '30 days' AND status NOT IN ('running') LIMIT 1000)`;
   await sql`DELETE FROM worker_heartbeats WHERE seen_at<now()-interval '1 day'`;
   await sql`UPDATE data_jobs SET status='failed',error='Đã hết số lần thử. Chọn lại file để tạo tác vụ mới.',lease_token=NULL WHERE status='running' AND lease_expires_at<now() AND attempts>=max_attempts`;
 }

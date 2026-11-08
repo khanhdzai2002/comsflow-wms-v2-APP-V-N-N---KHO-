@@ -1,3 +1,4 @@
+import { ReturnSchemaNotice } from "./return-schema-notice";
 import { PrescanSchemaNotice } from "./prescan-schema-notice";
 import { useState } from "react";
 import type { User } from "@/lib/db";
@@ -13,13 +14,15 @@ export function CatalogReadiness({ refs, user }: { refs: Row; user: User }) {
   return (
     <>
       <PrescanSchemaNotice refs={refs} user={user} />
+      <ReturnSchemaNotice refs={refs} user={user} />
       {refs.workerAvailable === false && user.role !== "staff" && (
         <div className="notice warning" role="status">
           <p>
-            Dịch vụ xử lý file chưa kết nối gần đây. Nhập Excel và xuất báo cáo
-            cần dịch vụ này; xem trạng thái tại{" "}
-            <a href="#jobs">Tác vụ dữ liệu</a>. PDF xuất kho và CSV mẫu TikTok
-            Shop có thể nhập trực tiếp.
+            Dịch vụ xử lý file riêng chưa kết nối gần đây. Các tác vụ nền cũ cần
+            dịch vụ này; xem trạng thái tại <a href="#jobs">Tác vụ dữ liệu</a>.
+            PDF xuất kho và CSV mẫu TikTok Shop có thể nhập trực tiếp. CSV/XLSX
+            hàng hoàn v2 và báo cáo đối soát hãng cũng xử lý trực tiếp khi đã
+            nâng cấp database.
           </p>
         </div>
       )}

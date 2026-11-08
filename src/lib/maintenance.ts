@@ -1,3 +1,4 @@
+import { returnOperationsStatus } from "./return-operations-access";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { db, audit, type Tx, type User } from "./db";
@@ -133,6 +134,11 @@ async function capture(sql: Tx, f: Filters, ids: string[]) {
 export async function previewCleanup(user: User, raw: unknown) {
   requireRole(user, ["admin"]);
   const f = filters(raw);
+  if (f.kind === "returns" && (await returnOperationsStatus()).ready)
+    throw new AppError(
+      409,
+      "Hàng hoàn v2 giữ lịch sử. Dùng Lịch sử nhập dữ liệu → Loại bỏ / Khôi phục thay cho xóa vĩnh viễn.",
+    );
   await db()`DELETE FROM maintenance_jobs WHERE state='preview' AND expires_at<now()`;
   return db().begin("isolation level repeatable read", async (tx) => {
     if (
@@ -253,6 +259,11 @@ export async function executeCleanup(user: User, raw: unknown) {
       warehouse: job.warehouse_id ?? "",
     });
     if (f.kind === "returns") {
+      if ((await returnOperationsStatus(tx)).ready)
+        throw new AppError(
+          409,
+          "Bản xem trước cũ không còn hợp lệ sau nâng cấp hàng hoàn. Dùng loại bỏ / khôi phục đợt nhập để giữ bằng chứng.",
+        );
       await tx`SELECT pg_advisory_xact_lock(742920)`;
       await tx`SELECT id FROM return_cases WHERE id IN ${tx(ids)} ORDER BY id FOR UPDATE`;
       await tx`SELECT id FROM return_parcels WHERE case_id IN ${tx(ids)} ORDER BY id FOR UPDATE`;
