@@ -99,7 +99,7 @@ const sections = [
     meaning:
       "Quản lý danh mục kho/sàn/hãng, quy tắc gợi ý tiền tố, nhật ký thao tác và dọn dữ liệu cũ.",
     action:
-      "Tiền tố chỉ là gợi ý. Ví dụ mã bắt đầu 86 không chứng minh chắc chắn TikTok/J&T; hệ thống ưu tiên bản ghi nguồn đã nhập. Dọn dữ liệu cũ: Admin chọn nhật ký quét hoặc hồ sơ hoàn, mốc trước ngày và kho → xem trước → xuất danh sách nếu cần → xác nhận xoá vĩnh viễn bằng câu xác nhận và lý do. Chỉ dọn hồ sơ đã kết thúc, giữ hoạt động mới/đang xử lý và khiếu nại mở. Xoá hồ sơ hoàn kèm ảnh/PDF, dữ liệu nguồn và lịch sử; báo cáo cũ giảm theo phần đã xoá. Nhật ký xuất kho chỉ xoá lượt quét, giữ nguyên vận đơn và ngày quét/bàn giao. Tệp xuất danh sách không phải bản sao lưu đầy đủ. Tối ưu vùng trống giúp PostgreSQL tái sử dụng dung lượng, không bảo đảm dung lượng đĩa hoặc phí lưu trữ giảm ngay.",
+      "Tiền tố chỉ là gợi ý. Ví dụ mã bắt đầu 86 không chứng minh chắc chắn TikTok/J&T; hệ thống ưu tiên bản ghi nguồn đã nhập. Dọn nhật ký xuất kho: Admin chọn mốc trước ngày và kho → xem trước → xuất danh sách nếu cần → xác nhận bằng câu xác nhận và lý do; giữ vận đơn và ngày quét/bàn giao. Hàng hoàn V2 giữ lịch sử: Admin dùng Lịch sử nhập dữ liệu → Loại bỏ / Khôi phục đợt nhập có lý do, không dùng xóa vĩnh viễn hồ sơ hoàn. Tệp xuất danh sách không phải bản sao lưu đầy đủ. Tối ưu vùng trống giúp PostgreSQL tái sử dụng dung lượng, không bảo đảm dung lượng đĩa hoặc phí lưu trữ giảm ngay.",
   },
 ];
 
@@ -112,6 +112,33 @@ export function UserGuide({
 }) {
   return (
     <div className="user-guide">
+      <section className="card padded">
+        <h2>
+          <BookOpen size={22} /> Hướng dẫn hàng hoàn bằng slide và ảnh
+        </h2>
+        <p>
+          Bắt đầu từ hai file giao không thành công và trả hàng – hoàn tiền;
+          theo dõi đến nhận kiện, kiểm SKU và xử lý phần còn thiếu.
+        </p>
+        <div className="inline wrap">
+          <a
+            className="button primary"
+            href="/huong-dan-hang-hoan/"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Mở 14 slide hướng dẫn
+          </a>
+          <a
+            className="button secondary"
+            href="/huong-dan-hang-hoan/quy-trinh-nhan-hoan.html"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Xem quy trình để in tại kho
+          </a>
+        </div>
+      </section>
       <section className="card padded guide-intro">
         <div>
           <span className="eyebrow">BẮT ĐẦU TẠI ĐÂY</span>

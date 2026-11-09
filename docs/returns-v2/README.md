@@ -5,6 +5,7 @@ Bản ứng dụng hiện tại `2026-11-09.return-scan-sound-1` (phân hệ V2 
 - [Khảo sát kiến trúc và ánh xạ dữ liệu trước sửa](ARCHITECTURE-AND-MIGRATION.md)
 - [Triển khai, sao lưu, nghiệm thu và rollback](DEPLOYMENT.md)
 - [Hướng dẫn nhân viên kho / quản lý](OPERATOR-GUIDE.md)
+- [Bộ 14 slide, PDF, PowerPoint và ảnh quy trình A4](training/README.md)
 - [Ma trận nghiệm thu và giới hạn kiểm chứng](ACCEPTANCE.md)
 - [Số đo tải cục bộ](BENCHMARK.json)
 - [Danh sách đầy đủ tệp thay đổi](CHANGED-FILES.md)

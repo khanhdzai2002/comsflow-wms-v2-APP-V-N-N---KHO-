@@ -1,0 +1,11 @@
+{
+  "guideVersion": "2026-11-09.training-1",
+  "moduleSourceCommit": "9222fe4",
+  "language": "vi",
+  "slides": 14,
+  "pdfPages": 14,
+  "posterPages": 1,
+  "screenshotData": "synthetic local-only examples; not shop data",
+  "powerPoint": "high-resolution slide images with readable text in speaker notes",
+  "liveOperationsChanged": false
+}
