@@ -1811,3 +1811,288 @@ test("returns v2 direct import resumes staged rows and retries a lost commit wit
   expect(committed).toBe(true);
   expect(staged).toHaveLength(2);
 });
+
+async function prepareReturnAudioStation(
+  page: import("@playwright/test").Page,
+  v2 = true,
+) {
+  await page.route("**/api/references", (route) =>
+    route.fulfill({
+      json: {
+        serverTime: new Date().toISOString(),
+        returnOperationsReady: v2,
+        returnOperationsInstalled: v2,
+        prescanReady: true,
+        prescanPermissionsReady: true,
+        warehouses: [{ id, name: "Kho ComsMiu" }],
+        channels: [{ id, name: "TikTok Shop" }],
+        carriers: [{ id, name: "J&T Express" }],
+        shops: [],
+        users: [],
+        rules: [],
+        templates: [],
+        retention: [],
+        settings: {},
+        shifts: [
+          {
+            id: jobId,
+            name: "Ca nhận hoàn",
+            warehouse_id: id,
+            assigned: true,
+            starts_at: new Date(Date.now() - 60000).toISOString(),
+            ends_at: new Date(Date.now() + 3600000).toISOString(),
+          },
+        ],
+      },
+    }),
+  );
+  await page.route("**/api/returns/operations/handovers**", (r) =>
+    r.fulfill({ json: [] }),
+  );
+  await page.route("**/api/returns/events/mine", (r) =>
+    r.fulfill({ json: { events: [] } }),
+  );
+  await page.route("**/api/returns/operations/overview?**", (r) =>
+    r.fulfill({
+      json: {
+        totals: {},
+        carriers: [],
+        days: [],
+        states: [],
+        products: [],
+        claimMonths: [],
+      },
+    }),
+  );
+}
+
+test("return scan audio distinguishes confirmed, duplicate, unmatched and failed requests; mute persists and retries keep their key", async ({
+  page,
+}) => {
+  await prepareReturnAudioStation(page);
+  await page.addInitScript(() => {
+    const observed = {
+      tones: [] as { frequency: number; type: string }[],
+      created: 0,
+      closed: 0,
+    };
+    (window as any).__returnAudio = observed;
+    const NativeAudio = window.AudioContext;
+    window.AudioContext = class extends NativeAudio {
+      constructor(options?: AudioContextOptions) {
+        super(options);
+        observed.created++;
+      }
+      createOscillator() {
+        const node = super.createOscillator(),
+          start = node.start.bind(node);
+        node.start = (when = 0) => {
+          observed.tones.push({
+            frequency: node.frequency.value,
+            type: node.type,
+          });
+          start(when);
+        };
+        return node;
+      }
+      close() {
+        observed.closed++;
+        return super.close();
+      }
+    };
+  });
+  let phase = "received";
+  let release: (() => void) | undefined;
+  const payloads: any[] = [];
+  await page.route("**/api/returns/receive", async (route) => {
+    payloads.push(route.request().postDataJSON());
+    if (payloads.length === 1)
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    if (phase === "network") return route.abort("failed");
+    if (phase === "server")
+      return route.fulfill({
+        status: 500,
+        json: { error: "Chưa lưu được lượt nhận" },
+      });
+    return route.fulfill({
+      json: {
+        outcome: phase,
+        recorded: true,
+        matchState:
+          phase === "unknown" || phase === "ambiguous"
+            ? "unmatched"
+            : "matched",
+        code: payloads.at(-1).code,
+        caseId: phase === "received" || phase === "duplicate" ? id : undefined,
+        eventId: jobId,
+        at: new Date().toISOString(),
+        employee: "Nhân viên thử nghiệm",
+        candidates: [],
+      },
+    });
+  });
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.goto("/#returns/scan");
+  const station = page.locator(".return-scanner");
+  const input = station.getByRole("textbox", {
+    name: "Mã vận đơn hoàn",
+    exact: true,
+  });
+  const toggle = station.getByRole("checkbox", { name: "Âm báo khi tít hoàn" });
+  const frequencies = () =>
+    page.evaluate(() =>
+      (window as any).__returnAudio.tones.map((t: any) => t.frequency),
+    );
+  const clear = () =>
+    page.evaluate(() => {
+      (window as any).__returnAudio.tones.length = 0;
+    });
+  await expect(toggle).toBeChecked();
+  await station
+    .getByRole("combobox", { name: "Phương thức nhận hoàn" })
+    .selectOption("hid");
+  await input.fill("862678510680");
+  await input.press("Enter");
+  await expect.poll(() => payloads.length).toBe(1);
+  await expect(input).toBeDisabled();
+  // No result sound before the server confirms, even though audio is unlocked.
+  expect(await frequencies()).toEqual([]);
+  release!();
+  await expect(station.getByRole("status")).toContainText("ĐÃ NHẬN KIỆN");
+  await expect.poll(frequencies).toEqual([880, 1320]);
+  expect(payloads[0].method).toBe("hid");
+
+  for (const [next, notes] of [
+    ["duplicate", [660, 660, 660]],
+    ["unknown", [220, 165]],
+    ["ambiguous", [220, 165]],
+  ] as const) {
+    await clear();
+    phase = next;
+    await input.fill("862678510680");
+    await input.press("Enter");
+    await expect.poll(frequencies).toEqual(notes);
+    if (next !== "duplicate")
+      await expect(station.getByRole("status")).toContainText(
+        "ĐÃ LƯU NHẬN THỰC TẾ",
+      );
+  }
+  for (const next of ["server", "network"]) {
+    await clear();
+    phase = next;
+    await input.fill("862678510681");
+    await input.press("Enter");
+    await expect.poll(frequencies).toEqual([220, 165]);
+    await expect(input).toHaveValue("862678510681");
+    await expect(station.getByRole("status")).toHaveCount(0);
+    await expect(station).toContainText(
+      next === "server" ? "Chưa lưu được lượt nhận" : "Mất kết nối",
+    );
+  }
+  const failedKey = payloads.at(-1).requestId;
+  expect(payloads.at(-2).requestId).toBe(failedKey);
+  await clear();
+  phase = "received";
+  await input.press("Enter");
+  await expect.poll(frequencies).toEqual([880, 1320]);
+  expect(payloads.at(-1).requestId).toBe(failedKey);
+  expect(await page.evaluate(() => (window as any).__returnAudio.created)).toBe(
+    1,
+  );
+
+  await toggle.uncheck();
+  await clear();
+  await input.fill("862678510682");
+  await input.press("Enter");
+  await expect(station.getByRole("status")).toContainText("ĐÃ NHẬN KIỆN");
+  expect(await frequencies()).toEqual([]);
+  expect(
+    await page.evaluate(() => localStorage.getItem("wms-return-sound")),
+  ).toBe("false");
+  await page.reload();
+  await expect(toggle).not.toBeChecked();
+  await input.fill("862678510683");
+  await input.press("Enter");
+  await expect(station.getByRole("status")).toContainText("ĐÃ NHẬN KIỆN");
+  expect(await frequencies()).toEqual([]);
+  expect(await page.evaluate(() => (window as any).__returnAudio.created)).toBe(
+    0,
+  );
+
+  await toggle.check();
+  await station.locator("summary").filter({ hasText: "Thử âm báo" }).click();
+  const beforePreview = payloads.length;
+  for (const [name, notes] of [
+    ["Thử âm thành công", [880, 1320]],
+    ["Thử âm quét trùng", [660, 660, 660]],
+    ["Thử âm lỗi", [220, 165]],
+  ] as const) {
+    await clear();
+    await station.getByRole("button", { name, exact: true }).click();
+    await expect.poll(frequencies).toEqual(notes);
+  }
+  expect(payloads.length).toBe(beforePreview);
+  await page.screenshot({
+    path: "test-results/return-scan-audio-" + test.info().project.name + ".png",
+    fullPage: true,
+  });
+  await page.getByRole("tab", { name: /Tổng quan hàng hoàn/ }).click();
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__returnAudio.closed))
+    .toBe(1);
+  expect(errors).toEqual([]);
+});
+
+for (const audioFailure of ["unavailable", "blocked"]) {
+  test(
+    "return receipt still confirms when audio is " + audioFailure,
+    async ({ page }) => {
+      await prepareReturnAudioStation(page, audioFailure !== "blocked");
+      await page.addInitScript((mode) => {
+        Object.defineProperty(window, "AudioContext", {
+          configurable: true,
+          value:
+            mode === "unavailable"
+              ? undefined
+              : class {
+                  constructor() {
+                    throw new Error("Audio blocked");
+                  }
+                },
+        });
+        Object.defineProperty(window, "webkitAudioContext", {
+          configurable: true,
+          value: undefined,
+        });
+      }, audioFailure);
+      let requests = 0;
+      await page.route("**/api/returns/receive", (route) => {
+        requests++;
+        return route.fulfill({
+          json: {
+            outcome: "received",
+            eventId: jobId,
+            code: "862678510680",
+            at: new Date().toISOString(),
+          },
+        });
+      });
+      const errors: string[] = [];
+      page.on("pageerror", (e) => errors.push(e.message));
+      await page.goto("/#returns/scan");
+      const station = page.locator(".return-scanner");
+      await station
+        .getByRole("textbox", { name: "Mã vận đơn hoàn", exact: true })
+        .fill("862678510680");
+      await station
+        .getByRole("button", { name: "Xác nhận nhận kiện hoàn", exact: true })
+        .click();
+      await expect(station.getByRole("status")).toContainText("ĐÃ NHẬN KIỆN");
+      expect(requests).toBe(1);
+      expect(errors).toEqual([]);
+    },
+  );
+}

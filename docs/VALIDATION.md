@@ -178,3 +178,13 @@ Sau sửa, chạy cả Node parser và browser PDF worker Chromium trên tệp t
 Fixture tổng hợp không dùng dữ liệu khách: nhận form TikTok/BEST đầy đủ khi logo không trích text; từ chối thiếu từng dấu biểu mẫu, mã/order không in lặp; phân nhóm đúng cả trang tiếp theo; vẫn chặn file trộn. Regression job kiểm tra snapshot cũ phải đọc lại và kết quả đã commit không mất. Browser desktop/mobile đọc PDF bằng worker thật cho J&T, SPX, BEST logo ảnh; file trộn hiển thị chính xác nhóm/trang và không lưu được dù chọn BEST; cache trước nâng cấp không được tái dùng.
 
 Kết quả: typecheck, lint, **325 tests / 24 files**, **30 Playwright scenarios**, client build, Node worker build và Wrangler dry-run. Chưa xác nhận rollout hosted app từ môi trường này; chủ kho cần chờ Cloudflare Ready, tải lại giao diện và chọn lại PDF.
+
+## 2026-11-09 — âm báo tít nhận hàng hoàn
+
+Bản `2026-11-09.return-scan-sound-1` tách ba tín hiệu: nhận thành công hai tít cao, trùng ba tít ngắn, lỗi/chưa khớp hai âm trầm. Âm thành công chỉ phát sau phản hồi xác nhận; lỗi HTTP/mạng phát âm lỗi và giữ mã/request ID để retry. Mã chưa có nguồn hoặc khớp nhiều hồ sơ vẫn giữ bằng chứng nhận thực tế và thông báo chờ đối soát. Xóa kết quả cũ khi bắt đầu lượt mới để thông báo thành công trước không tồn tại cạnh lỗi của lượt sau.
+
+Web Audio được mở trong tương tác click/phím trước khi chờ API, dùng lại một context, ngắt âm trước khi phát lượt mới, dọn node và đóng context khi rời trang. Có tùy chọn âm báo riêng được lưu tại trình duyệt và ba nút nghe thử không gửi yêu cầu nhận. Thiết bị không hỗ trợ/chặn Web Audio không ảnh hưởng xác nhận nghiệp vụ. Không thay API, schema, dependency hoặc âm báo xuất kho.
+
+Đã đạt: typecheck, lint, **377 tests / 28 files** (137,19 giây), client build, Node worker build, Wrangler dry-run; **42 Playwright scenarios** trên production preview (1,4 phút), gồm sáu bài mới trên Chromium desktop và kích thước điện thoại. Bài âm thanh quan sát oscillator trên AudioContext thật, chặn phản hồi API để chứng minh không phát thành công sớm, thử trùng/unknown/ambiguous/HTTP lỗi/mất mạng/retry cùng ID, tắt âm qua F5, nghe thử không ghi nghiệp vụ, dùng lại/đóng context và trường hợp âm thanh không khả dụng hoặc constructor bị chặn. Một bài không hỗ trợ âm chạy cả nhánh hoàn cũ. API/Storage trong browser là giả lập; database suite dùng PostgreSQL local `_test`.
+
+Đã xem ảnh giao diện desktop/mobile. Chưa nghiệm thu âm lượng loa, Safari/iPhone thật, camera/HID vật lý hoặc rollout hosted của bản âm thanh từ workspace. Người vận hành kiểm loa bằng Thử âm báo sau khi Cloudflare build mới Ready và tải lại app; database đã có 020 không cần chạy SQL thêm.

@@ -24,6 +24,14 @@ Mất mạng: chọn lại **cùng file, kho, shop, sàn và ánh xạ**, đọc
 5. Mã khớp nhiều yêu cầu cần quản lý xác minh hồ sơ, ghi chú tối thiểu 8 ký tự. Không chọn ngẫu nhiên. Có thể dùng **Đối soát hàng hoàn → Sổ nhận → Ghép dữ liệu**.
 6. Đóng phiên sau kiểm đếm bàn giao. Xem lại phiên cũ, từng trang mã và bằng chứng trong lịch sử phiên. Xem phiên cũ không đổi phiên đang quét.
 
+**Âm báo khi tít hoàn** mặc định bật, có thể tắt/bật riêng trên từng trình duyệt và được giữ sau tải lại trang. Mở **Thử âm báo** để nghe ba âm, thao tác nghe thử không tạo lượt nhận:
+
+- Thành công: hai tít cao, chỉ phát sau khi máy chủ xác nhận đã nhận.
+- Quét trùng: ba tít ngắn, không tăng số kiện nhận.
+- Lỗi hoặc mã chưa khớp nguồn: hai âm trầm; xem thông báo để biết cần làm gì. Mã chưa có nguồn nhưng đã báo **ĐÃ LƯU NHẬN THỰC TẾ · CHỜ ĐỐI CHIẾU NGUỒN** vẫn được lưu để đối soát hai chiều, không cần tít lại chỉ vì nghe âm này.
+
+Bấm nghe thử để mở âm thanh trên điện thoại, kiểm tra âm lượng thiết bị trước nhận ca. Nếu thiết bị chặn hoặc không hỗ trợ âm thanh, thao tác vẫn theo kết quả hiển thị và xác nhận máy chủ. Khi mất mạng, giữ mã rồi thử lại; âm lỗi không chứng minh máy chủ chưa từng nhận yêu cầu.
+
 Ảnh JPEG/PNG/WebP, PDF, MP4/WebM tối đa 50 MB/tệp được lưu private. Có thể bổ sung biên bản/ảnh/video tại phiên hoặc hồ sơ. Camera quét cần trình duyệt cấp quyền camera/HTTPS; có thể dùng HID nếu camera không sẵn sàng.
 
 ## Kiểm hàng và xử lý

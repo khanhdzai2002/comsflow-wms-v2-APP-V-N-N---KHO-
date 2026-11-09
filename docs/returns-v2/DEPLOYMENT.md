@@ -4,6 +4,8 @@
 
 Code và SQL đã được xây dựng, kiểm thử trên database local có tên kết thúc `_test`. Chưa chạy SQL trên project thật, chưa xác minh build/đăng nhập/Storage/Hyperdrive của bản mới trên Cloudflare. Không dùng fixture hoặc lệnh reset test cho dữ liệu thật.
 
+Bản bổ sung âm báo `2026-11-09.return-scan-sound-1` chỉ cập nhật web; database đã chạy 020 không cần chạy thêm SQL. Chờ Cloudflare build commit mới đạt Ready, tải lại app, vào Tít nhận hàng hoàn → bật Âm báo khi tít hoàn → Thử âm báo. Nghiệm thu bằng loa/thiết bị kho thực tế; bài trình duyệt chỉ xác minh việc phát âm và các nhánh kết quả.
+
 ## Nâng cấp từ 19 migration
 
 1. Chọn đúng project Supabase **lyeyjfvxmqruszgfrjze**. Ghi lại SHA/Cloudflare Version ID hiện tại và counts của `return_cases/items/parcels/events/claims/evidence`, `scan_events`, `shipments`; lấy mẫu mã dài, người/giờ nhận và hồ sơ khiếu nại.
@@ -13,7 +15,7 @@ Code và SQL đã được xây dựng, kiểm thử trên database local có t�
 5. Nâng cấp giữ UUID/mã/source_data/sự kiện/giờ nhận cũ. Sổ nhận cũ được bổ sung từ kiện đã nhận và các mã unknown độc lập có thể khôi phục; không đổi unknown gốc thành received. Dữ liệu không đủ bằng chứng vẫn là cần xác minh. Phiên bản nguồn cũ chỉ có ảnh chụp tổng hợp đang lưu, không bịa lại mọi phiên bản nhập lịch sử đã thiếu.
 6. Giữ role **comsflow_connection_check** giới hạn. Migration cấp quyền và RLS cho bảng/view/function mới, không cấp anon/authenticated. Nếu giao diện báo thiếu quyền, dùng `scripts/sql/grant-hyperdrive-runtime.sql` trong đúng project; không đổi mật khẩu hoặc cấp service role cho trình duyệt.
 7. Với bucket `comsflow-private`, migration thêm MIME ảnh/video và giới hạn 50 MB, giữ private. Nếu dùng `STORAGE_BUCKET` khác, quản trị chạy `npm run storage:setup` bằng credentials quản trị đã cấu hình an toàn hoặc cập nhật bucket tương ứng. Không dán service-role/database password vào chat, mã nguồn hay biến frontend.
-8. Build Cloudflare từ commit mới: `npm run build`, deploy bằng liên kết GitHub hiện có (`npx wrangler deploy`). Giữ `DATABASE_URL`/Hyperdrive/secret Supabase tại runtime. Cấu hình binding và tên Worker không đổi. UI hiện bản **2026-11-09.returns-v2-1**; `GET /api/health` phải connected. Sau đăng nhập, `/api/returns/operations/status` phải `ready:true, permissions:true`.
+8. Build Cloudflare từ commit mới: `npm run build`, deploy bằng liên kết GitHub hiện có (`npx wrangler deploy`). Giữ `DATABASE_URL`/Hyperdrive/secret Supabase tại runtime. Cấu hình binding và tên Worker không đổi. UI hiện bản **2026-11-09.return-scan-sound-1** (bản V2 đầu tiên là `2026-11-09.returns-v2-1`); `GET /api/health` phải connected. Sau đăng nhập, `/api/returns/operations/status` phải `ready:true, permissions:true`.
 9. Nếu còn chạy Node processor cho chức năng cũ, build/deploy **worker mới** trước khi dùng intake v2: housekeeping mới giữ file intake và metadata. Không tiếp tục chạy worker housekeeping cũ với file intake mới. Core CSV/XLSX hàng hoàn và báo cáo hãng không đòi hỏi triển khai Node processor.
 10. Admin cũng có thể sao chép SQL 020 trực tiếp trong thông báo nâng cấp của app, không cần tải tệp. Khi schema/quyền thiếu, phần hoàn cũ vẫn được dùng; không tự chạy DDL từ request người dùng.
 

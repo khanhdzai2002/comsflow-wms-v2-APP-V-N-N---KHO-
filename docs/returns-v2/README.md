@@ -1,6 +1,6 @@
 # Quản lý & Đối soát hàng hoàn V2
 
-Bản ứng dụng `2026-11-09.returns-v2-1`, nâng cấp từ `0fc6fb5` / 19 migration. Thay phân hệ hoàn khi migration 020 và quyền runtime sẵn sàng. Trước đó ứng dụng tiếp tục dùng giao diện hoàn cũ. Không thay cơ chế đăng nhập hoặc nghiệp vụ xuất kho.
+Bản ứng dụng hiện tại `2026-11-09.return-scan-sound-1` (phân hệ V2 ban đầu: `2026-11-09.returns-v2-1`), nâng cấp từ `0fc6fb5` / 19 migration. Thay phân hệ hoàn khi migration 020 và quyền runtime sẵn sàng. Trước đó ứng dụng tiếp tục dùng giao diện hoàn cũ. Không thay cơ chế đăng nhập hoặc nghiệp vụ xuất kho.
 
 - [Khảo sát kiến trúc và ánh xạ dữ liệu trước sửa](ARCHITECTURE-AND-MIGRATION.md)
 - [Triển khai, sao lưu, nghiệm thu và rollback](DEPLOYMENT.md)
@@ -50,5 +50,7 @@ Giá trị hàng lấy từ giá trị hoàn hoặc đơn giá × lượng sản
 | Giao diện / trợ giúp            | `src/components/return-operations.tsx`, `return-schema-notice.tsx`, `workspace.tsx`, `user-guide.tsx`, `catalog-readiness.tsx`             |
 | Giữ lịch sử                     | `src/lib/maintenance.ts` chặn xóa hoàn vĩnh viễn khi 020 có mặt; `src/worker/main.ts` giữ file gốc intake                                  |
 | Build / cài đặt                 | `scripts/build-supabase-sql.mjs`, `setup-storage.ts`, `vite.config.ts`, `src/lib/app-version.ts`, `AGENTS.md`                              |
+
+Âm báo nhận hoàn: thành công hai tít cao, trùng ba tít ngắn, lỗi/chưa khớp hai âm trầm; có bật/tắt và nghe thử. Bản âm thanh chỉ cập nhật web, không cần SQL hoặc thay secret.
 
 Không thêm dependency. PDF/Excel parser không đi vào Cloudflare handler. Luồng mới cho CSV/XLSX hàng hoàn và Excel gửi hãng chạy trong worker trình duyệt; SQL, phân quyền, đối soát và xác nhận ghi đều ở máy chủ. Các tác vụ nền cũ, gồm nhập nguồn bán nâng cao, vẫn dùng Node processor như trước.

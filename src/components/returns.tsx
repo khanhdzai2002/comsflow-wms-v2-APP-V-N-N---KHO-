@@ -1,5 +1,6 @@
 "use client";
 import { ReturnHandoverPanel } from "./return-handover";
+import { useReturnScanSound } from "./return-scan-sound";
 import { ReturnOperationsModule } from "./return-operations";
 import { ReturnOverview } from "./return-overview";
 import { MetricHelp } from "./metric-help";
@@ -23,6 +24,7 @@ import {
   Info,
   ArrowRight,
   LoaderCircle,
+  Volume2,
 } from "lucide-react";
 import type { User } from "@/lib/db";
 import { todayVN, formatTime } from "@/lib/domain";
@@ -1332,6 +1334,7 @@ export function ReturnScanner({
   events: Row[];
   onOpen: (id: string) => void;
 }) {
+  const sound = useReturnScanSound();
   const [warehouse, setWarehouse] = useCatalogSelection(refs.warehouses);
   const [starting, setStarting] = useState(false);
   const [requestedShift, setShift] = useState(""),
@@ -1364,9 +1367,11 @@ export function ReturnScanner({
   const shift = shifts.find((s: Row) => s.id === requestedShift) ?? shifts[0];
   async function receive(value = code, parcelId?: string, scanMethod = method) {
     if (running.current) return;
+    sound.prepare();
     running.current = true;
     setBusy(true);
     setError("");
+    setResult(null);
     try {
       if (!shift) throw new Error("Chọn ca đang hoạt động trước khi nhận hàng");
       const payload = {
@@ -1395,22 +1400,16 @@ export function ReturnScanner({
       setResult(r);
       setCode("");
       refresh();
-      try {
-        const audio = new AudioContext();
-        const o = audio.createOscillator(),
-          g = audio.createGain();
-        o.connect(g);
-        g.connect(audio.destination);
-        g.gain.value = 0.08;
-        o.frequency.value = r.outcome === "received" ? 880 : 220;
-        o.start();
-        o.stop(audio.currentTime + 0.12);
-        o.onended = () => {
-          void audio.close();
-        };
-      } catch {}
+      sound.play(
+        r.outcome === "received"
+          ? "success"
+          : r.outcome === "duplicate"
+            ? "duplicate"
+            : "error",
+      );
     } catch (e) {
       setError((e as Error).message);
+      sound.play("error");
     } finally {
       running.current = false;
       setBusy(false);
@@ -1419,8 +1418,56 @@ export function ReturnScanner({
     }
   }
   return (
-    <section className="card padded return-scanner">
+    <section
+      className="card padded return-scanner"
+      onPointerDownCapture={sound.prepare}
+      onKeyDownCapture={sound.prepare}
+    >
       <h2>Quét mã hoàn kho</h2>
+      <div className="return-scan-audio">
+        <label className="inline">
+          <input
+            type="checkbox"
+            checked={sound.enabled}
+            onChange={(e) => sound.setEnabled(e.target.checked)}
+          />
+          <Volume2 size={16} aria-hidden="true" /> Âm báo khi tít hoàn
+        </label>
+        <details>
+          <summary>Thử âm báo</summary>
+          <div className="inline">
+            <button
+              type="button"
+              className="secondary small"
+              disabled={!sound.enabled}
+              onClick={() => sound.play("success")}
+            >
+              Thử âm thành công
+            </button>
+            <button
+              type="button"
+              className="secondary small"
+              disabled={!sound.enabled}
+              onClick={() => sound.play("duplicate")}
+            >
+              Thử âm quét trùng
+            </button>
+            <button
+              type="button"
+              className="secondary small"
+              disabled={!sound.enabled}
+              onClick={() => sound.play("error")}
+            >
+              Thử âm lỗi
+            </button>
+          </div>
+          <p className="muted">
+            Thành công: hai tít cao · Trùng: ba tít ngắn · Lỗi hoặc mã chưa
+            khớp: hai âm trầm. Mã đã lưu chờ đối soát vẫn được giữ dù chưa tìm
+            thấy trong nguồn.
+          </p>
+        </details>
+      </div>
       <div className="form-grid">
         <label className="field">
           Kho quét hoàn
