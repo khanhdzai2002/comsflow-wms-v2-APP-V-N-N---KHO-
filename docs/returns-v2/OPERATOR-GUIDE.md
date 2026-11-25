@@ -24,6 +24,8 @@ Mất mạng: chọn lại **cùng file, kho, shop, sàn và ánh xạ**, đọc
 5. Mã khớp nhiều yêu cầu cần quản lý xác minh hồ sơ, ghi chú tối thiểu 8 ký tự. Không chọn ngẫu nhiên. Có thể dùng **Đối soát hàng hoàn → Sổ nhận → Ghép dữ liệu**.
 6. Đóng phiên sau kiểm đếm bàn giao. Xem lại phiên cũ, từng trang mã và bằng chứng trong lịch sử phiên. Xem phiên cũ không đổi phiên đang quét.
 
+**Mã có chữ bị biến thành dấu tiếng Việt:** chọn phương thức **Súng quét HID**, đặt con trỏ vào ô mã rồi quét bằng Enter/Tab. Chế độ này giữ các phím gốc và được nhớ trên trình duyệt. Bấm **Esc** để xóa ô và quét lại; chọn **Nhập tay** khi cần sửa từng ký tự. Nếu máy vẫn can thiệp trước khi gửi phím tới trình duyệt, chuyển UniKey/EVKey từ **V sang E** hoặc chọn bàn phím **ENG**, hoặc dùng camera. App chặn mã có dấu hoặc chuỗi phím có dấu hiệu bị thay thế và báo chưa gửi lên máy chủ; không tự đoán phục hồi mã. Quy tắc này cũng áp dụng tại trạm quét xuất kho. Các lượt cũ báo **Mã không hợp lệ** cần quét lại bằng mã đúng; xem xác nhận trên máy chủ để biết đã lưu.
+
 **Âm báo khi tít hoàn** mặc định bật, có thể tắt/bật riêng trên từng trình duyệt và được giữ sau tải lại trang. Mở **Thử âm báo** để nghe ba âm, thao tác nghe thử không tạo lượt nhận:
 
 - Thành công: hai tít cao, chỉ phát sau khi máy chủ xác nhận đã nhận.

@@ -14,6 +14,11 @@ import {
 import type { User } from "@/lib/db";
 import { formatTime } from "@/lib/domain";
 import {
+  rememberScanMethod,
+  storedScanMethod,
+  useBarcodeInput,
+} from "./use-barcode-input";
+import {
   post,
   useData,
   refresh,
@@ -61,7 +66,9 @@ export function Scanner({
     ) ?? active.find((s: Row) => s.warehouse_id === warehouseId);
   const shiftId = selectedShift?.id ?? "";
   const [carrierId, setCarrierId] = useState("");
-  const [method, setMethod] = useState<"manual" | "hid">("manual");
+  const [method, setMethod] = useState<"manual" | "hid">(() =>
+    storedScanMethod("wms-outbound-scan-method"),
+  );
   const [online, setOnline] = useState(true);
   const [starting, setStarting] = useState(false);
   useEffect(() => {
@@ -138,6 +145,7 @@ export function Scanner({
       input.current?.focus();
       return;
     }
+    if (!previous) barcode.reset();
     const payload = previous ?? {
       code: value,
       method: scanMethod,
@@ -181,6 +189,21 @@ export function Scanner({
         setPending((n) => n - 1);
       }
     });
+  };
+  const barcode = useBarcodeInput({
+    value: code,
+    setValue: setCode,
+    method,
+    onSubmit: enqueue,
+    onReject(message) {
+      setError(message);
+      setResult(null);
+      feedback(false);
+    },
+  });
+  const chooseMethod = (value: "manual" | "hid") => {
+    setMethod(value);
+    rememberScanMethod("wms-outbound-scan-method", value);
   };
   return (
     <div className="scanner-layout">
@@ -342,7 +365,7 @@ export function Scanner({
               className={
                 method === "manual" ? "primary small" : "secondary small"
               }
-              onClick={() => setMethod("manual")}
+              onClick={() => chooseMethod("manual")}
             >
               Nhập tay
             </button>
@@ -350,7 +373,7 @@ export function Scanner({
               type="button"
               aria-pressed={method === "hid"}
               className={method === "hid" ? "primary small" : "secondary small"}
-              onClick={() => setMethod("hid")}
+              onClick={() => chooseMethod("hid")}
             >
               Súng quét HID
             </button>
@@ -358,31 +381,20 @@ export function Scanner({
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              enqueue(code, method);
+              barcode.submit();
             }}
           >
             <div className="scan-input-wrap">
               <Keyboard size={23} />
               <input
+                {...barcode.inputProps}
+                key={method}
                 ref={input}
                 autoFocus
                 autoComplete="off"
-                spellCheck={false}
                 aria-label="Mã vận đơn"
                 placeholder="Quét hoặc nhập mã vận đơn…"
                 value={code}
-                onChange={(e) => setCode(e.target.value)}
-                onKeyDown={(e) => {
-                  if (
-                    e.key === "Tab" &&
-                    method === "hid" &&
-                    code.trim() &&
-                    !e.nativeEvent.isComposing
-                  ) {
-                    e.preventDefault();
-                    enqueue(code, method);
-                  }
-                }}
               />
               <button
                 className="primary"
@@ -393,6 +405,11 @@ export function Scanner({
               </button>
             </div>
           </form>
+          <p className="muted">
+            Mã GHN có chữ: chọn Súng quét HID để giữ phím gốc. Nếu bộ gõ vẫn can
+            thiệp, chuyển UniKey/EVKey sang E hoặc bàn phím ENG. Bấm Esc để xóa
+            ô HID và quét lại.
+          </p>
           <div className="scan-actions">
             <button
               className="secondary"
@@ -405,7 +422,7 @@ export function Scanner({
             <button
               className="text-button"
               disabled={!code.trim() || !canScan}
-              onClick={() => enqueue(code, "manual")}
+              onClick={() => barcode.submit("manual")}
             >
               Ghi nhận nhập tay
             </button>

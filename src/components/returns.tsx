@@ -1,6 +1,11 @@
 "use client";
 import { ReturnHandoverPanel } from "./return-handover";
 import { useReturnScanSound } from "./return-scan-sound";
+import {
+  rememberScanMethod,
+  storedScanMethod,
+  useBarcodeInput,
+} from "./use-barcode-input";
 import { ReturnOperationsModule } from "./return-operations";
 import { ReturnOverview } from "./return-overview";
 import { MetricHelp } from "./metric-help";
@@ -1343,7 +1348,9 @@ export function ReturnScanner({
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [camera, setCamera] = useState(false),
-    [method, setMethod] = useState("manual");
+    [method, setMethod] = useState(() =>
+      storedScanMethod("wms-return-scan-method"),
+    );
   const [sessionId, setSessionId] = useState(""),
     [receiptCarrier, setReceiptCarrier] = useState(""),
     [courier, setCourier] = useState(""),
@@ -1365,8 +1372,13 @@ export function ReturnScanner({
       new Date(s.ends_at).getTime() > clock,
   );
   const shift = shifts.find((s: Row) => s.id === requestedShift) ?? shifts[0];
-  async function receive(value = code, parcelId?: string, scanMethod = method) {
+  async function receive(
+    value = code,
+    parcelId?: string,
+    scanMethod: string = method,
+  ) {
     if (running.current) return;
+    barcode.reset();
     sound.prepare();
     running.current = true;
     setBusy(true);
@@ -1417,6 +1429,19 @@ export function ReturnScanner({
       input.current?.select();
     }
   }
+  const barcode = useBarcodeInput({
+    value: code,
+    setValue: setCode,
+    method,
+    onSubmit(value, source) {
+      void receive(value, undefined, source);
+    },
+    onReject(message) {
+      setError(message);
+      setResult(null);
+      sound.play("error");
+    },
+  });
   return (
     <section
       className="card padded return-scanner"
@@ -1498,7 +1523,14 @@ export function ReturnScanner({
         </label>
         <label className="field">
           Phương thức nhận hoàn
-          <select value={method} onChange={(e) => setMethod(e.target.value)}>
+          <select
+            value={method}
+            onChange={(e) => {
+              const next = e.target.value === "hid" ? "hid" : "manual";
+              setMethod(next);
+              rememberScanMethod("wms-return-scan-method", next);
+            }}
+          >
             <option value="manual">Nhập tay</option>
             <option value="hid">Súng HID · Enter/Tab</option>
           </select>
@@ -1546,27 +1578,26 @@ export function ReturnScanner({
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          void receive();
+          barcode.submit();
         }}
       >
         <label className="field">
           Mã vận đơn hoàn
           <input
+            {...barcode.inputProps}
+            key={method}
             className="return-code-input"
             disabled={busy}
             ref={input}
             autoFocus
             autoComplete="off"
             value={code}
-            onChange={(e) => setCode(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Tab" && method === "hid" && code.trim()) {
-                e.preventDefault();
-                void receive();
-              }
-            }}
           />
         </label>
+        <p className="muted">
+          Súng HID giữ mã theo phím gốc. Bấm Esc để xóa và quét lại; chuyển
+          UniKey/EVKey sang E hoặc bàn phím ENG nếu bộ gõ của máy vẫn can thiệp.
+        </p>
         <button disabled={busy || !shift || !code.trim()}>
           {busy
             ? "Đang lưu · chờ xác nhận trước khi quét tiếp"

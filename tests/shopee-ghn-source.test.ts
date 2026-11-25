@@ -12,6 +12,21 @@ const order = "261021TEST0001";
 const label = (code = "GTEST001", id = order) => shopeeLabelText(code, id);
 
 describe("Nhận diện nguồn Shopee/GHN", () => {
+  it("giữ nguyên mã GHN có hai phím E liên tiếp trong tem Shopee", async () => {
+    const codes = [
+      "GYEET001",
+      "GYEET002",
+      "GYEET003",
+      "GYEET004",
+      "GYEET005",
+      "GYEET006",
+      "GYEET007",
+    ];
+    const pdf = await parseSourcePdf(makePdf(codes.map((code) => label(code))));
+    expect(pdf.errors).toEqual([]);
+    expect(pdf.detectedCarriers).toEqual(["GHN"]);
+    expect(pdf.labels.map((p) => p.trackingCode)).toEqual(codes);
+  });
   it("một mã GHN in một lần, đếm mã duy nhất và giữ nhiều kiện cùng đơn", async () => {
     const pdf = await parseSourcePdf(
       makePdf([label(), label(), label("GTEST002")]),

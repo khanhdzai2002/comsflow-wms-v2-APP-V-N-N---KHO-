@@ -1866,6 +1866,213 @@ async function prepareReturnAudioStation(
   );
 }
 
+async function scanWithImeKeys(
+  input: import("@playwright/test").Locator,
+  code: string,
+  terminator = "Enter",
+) {
+  await input.focus();
+  await input.evaluate(
+    (element, payload) => {
+      element.dispatchEvent(
+        new CompositionEvent("compositionstart", { bubbles: true }),
+      );
+      for (const character of payload.code) {
+        element.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Process",
+            code: /[A-Z]/.test(character)
+              ? "Key" + character
+              : "Digit" + character,
+            shiftKey: /[A-Z]/.test(character),
+            isComposing: true,
+            keyCode: 229,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      }
+      element.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Process",
+          code: payload.terminator,
+          isComposing: true,
+          keyCode: 229,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      element.dispatchEvent(
+        new CompositionEvent("compositionend", {
+          data: "Ê",
+          bubbles: true,
+        }),
+      );
+    },
+    { code, terminator },
+  );
+}
+
+for (const stationType of ["outbound", "return"] as const) {
+  test(`${stationType} HID preserves original GHN keys, blocks corrupted input and keeps manual/paste modes`, async ({
+    page,
+  }) => {
+    await prepareReturnAudioStation(page);
+    await page.route("**/api/scans/mine**", (route) =>
+      route.fulfill({
+        json: { summary: { success: 0, duplicate: 0, error: 0 }, recent: [] },
+      }),
+    );
+    const payloads: any[] = [];
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.route(
+      stationType === "outbound" ? "**/api/scans" : "**/api/returns/receive",
+      (route) => {
+        const payload = route.request().postDataJSON();
+        payloads.push(payload);
+        const duplicate = payloads.length === 2;
+        return route.fulfill({
+          json: {
+            id: jobId,
+            eventId: jobId,
+            recorded: true,
+            matchState: "matched",
+            caseId: id,
+            outcome: duplicate
+              ? "duplicate"
+              : stationType === "outbound"
+                ? "success"
+                : "received",
+            message: duplicate ? "ĐÃ QUÉT TRÙNG" : "ĐÃ XÁC NHẬN",
+            code: payload.code,
+            at: new Date().toISOString(),
+            employee: "Nhân viên thử nghiệm",
+            shipment: null,
+            items: [],
+            candidates: [],
+          },
+        });
+      },
+    );
+    await page.goto(stationType === "outbound" ? "/#scan" : "/#returns/scan");
+    const station = page.locator(
+      stationType === "outbound" ? ".scan-station" : ".return-scanner",
+    );
+    const input = station.getByRole("textbox", {
+      name: stationType === "outbound" ? "Mã vận đơn" : "Mã vận đơn hoàn",
+      exact: true,
+    });
+    const selectMethod = async (method: "manual" | "hid") => {
+      if (stationType === "outbound")
+        await station
+          .getByRole("button", {
+            name: method === "hid" ? "Súng quét HID" : "Nhập tay",
+            exact: true,
+          })
+          .click();
+      else
+        await station
+          .getByRole("combobox", { name: "Phương thức nhận hoàn" })
+          .selectOption(method);
+    };
+    const settled = async (count: number) => {
+      await expect.poll(() => payloads.length).toBe(count);
+      await expect(input).toBeEnabled();
+      await expect(input).toHaveValue("");
+    };
+    await selectMethod("hid");
+    await expect(input).toHaveAttribute("readonly", "");
+    await scanWithImeKeys(input, "GYEET001");
+    await settled(1);
+    expect(payloads[0]).toMatchObject({
+      code: "GYEET001",
+      method: "hid",
+      warehouseId: id,
+      shiftId: jobId,
+    });
+    await input.pressSequentially("GYEET001");
+    await input.press("Tab");
+    await settled(2);
+    expect(payloads[1].code).toBe("GYEET001");
+    expect(payloads[1].requestId).not.toBe(payloads[0].requestId);
+
+    // When the OS removes physical strokes, never guess or send a shortened ID.
+    await input.pressSequentially("GY");
+    await input.dispatchEvent("keydown", {
+      key: "Ê",
+      code: "Unidentified",
+      bubbles: true,
+      cancelable: true,
+    });
+    await input.pressSequentially("ET002");
+    await input.press("Enter");
+    await expect(station).toContainText("Mã đang bị bộ gõ làm biến dạng");
+    await expect(input).toHaveValue("");
+    expect(payloads).toHaveLength(2);
+    await input.pressSequentially("GYEET002");
+    await input.press("Backspace");
+    await input.press("Enter");
+    await expect(input).toHaveValue("");
+    expect(payloads).toHaveLength(2);
+    await input.pressSequentially("GYEE");
+    await input.press("Control+Backspace");
+    await input.pressSequentially("T002");
+    await input.press("Enter");
+    await expect(input).toHaveValue("");
+    expect(payloads).toHaveLength(2);
+    await input.press("Tab");
+    await expect(input).not.toBeFocused();
+    await input.pressSequentially("PARTIAL");
+    await input.press("Escape");
+    await scanWithImeKeys(input, "GYEET003", "Tab");
+    await settled(3);
+    expect(payloads[2].code).toBe("GYEET003");
+
+    await selectMethod("manual");
+    await input.fill("GNG88Ê");
+    await input.press("Enter");
+    await expect(station).toContainText("Chưa gửi lượt này lên máy chủ");
+    expect(payloads).toHaveLength(3);
+    await input.fill("GYEET004");
+    await input.dispatchEvent("keydown", {
+      key: "Enter",
+      code: "Enter",
+      isComposing: true,
+      keyCode: 229,
+      bubbles: true,
+      cancelable: true,
+    });
+    expect(payloads).toHaveLength(3);
+    await input.press("Enter");
+    await settled(4);
+    expect(payloads[3]).toMatchObject({ code: "GYEET004", method: "manual" });
+
+    await selectMethod("hid");
+    const qr = JSON.stringify({ tracking_code: "GYEET005", note: "Kiện hoàn" });
+    await input.evaluate((element, text) => {
+      const data = new DataTransfer();
+      data.setData("text/plain", text);
+      element.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData: data,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    }, qr);
+    await input.press("Enter");
+    await settled(5);
+    expect(payloads[4]).toMatchObject({ code: qr, method: "hid" });
+    await page.reload();
+    await expect(input).toHaveAttribute("readonly", "");
+    await scanWithImeKeys(input, "GYEET006");
+    await settled(6);
+    expect(payloads[5]).toMatchObject({ code: "GYEET006", method: "hid" });
+    expect(errors).toEqual([]);
+  });
+}
+
 test("return scan audio distinguishes confirmed, duplicate, unmatched and failed requests; mute persists and retries keep their key", async ({
   page,
 }) => {
@@ -1954,7 +2161,7 @@ test("return scan audio distinguishes confirmed, duplicate, unmatched and failed
   await station
     .getByRole("combobox", { name: "Phương thức nhận hoàn" })
     .selectOption("hid");
-  await input.fill("862678510680");
+  await input.pressSequentially("862678510680");
   await input.press("Enter");
   await expect.poll(() => payloads.length).toBe(1);
   await expect(input).toBeDisabled();
@@ -1972,7 +2179,7 @@ test("return scan audio distinguishes confirmed, duplicate, unmatched and failed
   ] as const) {
     await clear();
     phase = next;
-    await input.fill("862678510680");
+    await input.pressSequentially("862678510680");
     await input.press("Enter");
     await expect.poll(frequencies).toEqual(notes);
     if (next !== "duplicate")
@@ -1983,7 +2190,7 @@ test("return scan audio distinguishes confirmed, duplicate, unmatched and failed
   for (const next of ["server", "network"]) {
     await clear();
     phase = next;
-    await input.fill("862678510681");
+    await input.pressSequentially("862678510681");
     await input.press("Enter");
     await expect.poll(frequencies).toEqual([220, 165]);
     await expect(input).toHaveValue("862678510681");
@@ -2005,7 +2212,7 @@ test("return scan audio distinguishes confirmed, duplicate, unmatched and failed
 
   await toggle.uncheck();
   await clear();
-  await input.fill("862678510682");
+  await input.pressSequentially("862678510682");
   await input.press("Enter");
   await expect(station.getByRole("status")).toContainText("ĐÃ NHẬN KIỆN");
   expect(await frequencies()).toEqual([]);
@@ -2014,7 +2221,7 @@ test("return scan audio distinguishes confirmed, duplicate, unmatched and failed
   ).toBe("false");
   await page.reload();
   await expect(toggle).not.toBeChecked();
-  await input.fill("862678510683");
+  await input.pressSequentially("862678510683");
   await input.press("Enter");
   await expect(station.getByRole("status")).toContainText("ĐÃ NHẬN KIỆN");
   expect(await frequencies()).toEqual([]);
